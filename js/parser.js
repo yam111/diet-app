@@ -70,15 +70,20 @@
     return total + half;
   }
 
-  const UNITS = ['公克', '公斤', '毫升', '湯匙', '茶匙', '大匙', '小匙', 'c\\.c\\.', 'kg', 'ml', 'cc', 'g', '克',
-    '碗', '杯', '顆', '個', '粒', '片', '塊', '條', '根', '隻', '支', '份', '盤', '匙', '瓶', '罐', '盒', '包', '把', '球', '貫', '捲', '串', '朵', '尾', '口', '客', '碟', '套'];
+  const UNITS = ['大碗', '小碗', '大杯', '中杯', '小杯', '大份', '小份', '大盤', '小盤', '公克', '公斤', '毫升', '湯匙', '茶匙', '大匙', '小匙', 'c\\.c\\.', 'kg', 'ml', 'cc', 'g', '克',
+    '碗', '杯', '顆', '個', '粒', '片', '塊', '條', '根', '隻', '支', '份', '盤', '匙', '瓶', '罐', '盒', '包', '把', '球', '貫', '捲', '串', '朵', '尾', '口', '客', '碟', '套', '鍋'];
   const QTY_RE = new RegExp('(\\d+(?:\\.\\d+)?|[零〇一二兩三四五六七八九十百千半]+)(' + UNITS.join('|') + ')?(半)?', 'g');
   const GRAM_UNITS = { 公克: 1, 克: 1, g: 1, 公斤: 1000, kg: 1000, 毫升: 1, ml: 1, cc: 1, 'c.c.': 1 };
   const SYN = [['個', '顆', '粒'], ['條', '根', '支', '隻', '尾'], ['片', '塊'], ['份', '盤', '客', '套'], ['瓶', '罐'], ['盒', '包'], ['匙', '湯匙', '大匙']];
   const GENERIC = { 匙: 15, 湯匙: 15, 大匙: 15, 茶匙: 5, 小匙: 5, 碗: 200, 杯: 300, 盤: 300, 口: 15, 把: 20 };
 
   // 數量＋單位 → 克數
+  const SIZE = { 大: 1.3, 中: 1, 小: 0.7 };
   function toGrams(food, n, unit) {
+    // 「小碗」「大杯」：資料庫有這個單位就照用，沒有就用碗／杯再乘大小
+    if (unit && unit.length === 2 && unit[0] in SIZE && !food.units.some(x => x.n === unit)) {
+      const r = toGrams(food, n, unit[1]); return { g: r.g * SIZE[unit[0]], est: r.est };
+    }
     if (unit && unit in GRAM_UNITS) return { g: n * GRAM_UNITS[unit], est: false };
     const def = food.units[0];
     if (!unit) return { g: n * def.g, est: false, unit: def.n };
@@ -94,7 +99,7 @@
     [/下午茶|點心|宵夜|消夜|零食|小食|下午/g, 'snack'],
     [/早餐|早上|早飯|早點/g, 'breakfast'],
     [/午餐|中餐|中午|午飯/g, 'lunch'],
-    [/晚餐|晚上|晚飯/g, 'dinner'],
+    [/晚餐|晚上|晚飯|昨晚/g, 'dinner'],
   ];
   function mealByHour(h) {
     if (h >= 4 && h < 10.5) return 'breakfast';
@@ -103,12 +108,16 @@
     return 'snack';
   }
 
-  const STOP = ['我今天', '今天', '剛剛', '剛才', '昨天', '吃了', '喝了', '吃掉', '還有', '然後', '以及', '加上', '另外', '大概', '大約', '左右', '差不多', '一些', '一點', '搭配', '外加', '幫我', '記錄', '紀錄', '總共', '這樣', '而已', '時候', '那個', '這個', '再來', '接著', '之後', '份量', '重量',
+  // 甜度：手搖飲的糖大約佔碳水的 85%，照甜度扣
+  const SUGAR = [['一分糖', 0.1], ['二分糖', 0.2], ['三分糖', 0.3], ['全糖', 1], ['正常糖', 1], ['少糖', 0.7], ['半糖', 0.5], ['微糖', 0.3], ['無糖', 0], ['不加糖', 0]];
+  const ICE = ['正常冰', '少冰', '微冰', '去冰', '常溫', '溫的', '熱的', '冰的'];
+  const STOP = [...SUGAR.map(x => x[0]), ...ICE, '我今天', '今天', '剛剛', '剛才', '昨天', '昨日', '前天', '吃了', '喝了', '吃掉', '還有', '然後', '以及', '加上', '另外', '大概', '大約', '左右', '差不多', '一些', '一點', '搭配', '外加', '幫我', '記錄', '紀錄', '總共', '這樣', '而已', '時候', '那個', '這個', '再來', '接著', '之後', '份量', '重量',
     '我', '吃', '喝', '了', '和', '跟', '與', '加', '再', '又', '約', '的', '是', '有', '配', '記', '共', '就', '也', '都', '在', '嗯', '啊', '喔', '呃', '當', '作', '為', '用', '各', '點', '個'];
   const M = '█'; // 已辨識的位置用這個字遮起來
 
   function parse(text, hour) {
-    const s = (text || '').toLowerCase().replace(/\s+/g, '').replace(/颗/g, '顆').replace(/个/g, '個');
+    const s = (text || '').toLowerCase().replace(/\s+/g, '').replace(/颗/g, '顆').replace(/个/g, '個')
+      .replace(/(^|[^\d零〇一二兩三四五六七八九十百千半.])([大中小](?:碗|杯|份|盤))/g, '$1一$2'); // 「滷肉飯小碗」＝一小碗
     const n = s.length;
     const t = [...s]; // 遮罩用（這裡的食物名不含補充字元，直接用索引）
     const tokens = [];
@@ -129,6 +138,8 @@
       const cur = t.join('');
       while ((m = re.exec(cur))) { tokens.push({ type: 'meal', start: m.index, end: m.index + m[0].length, meal }); mask(m.index, m.index + m[0].length); }
     }
+    // 2.5 甜度冰塊（半糖、少冰…）先遮起來，「一杯半糖」的「半」才不會被當成半杯
+    for (const w of [...SUGAR.map(x => x[0]), ...ICE]) { let j = t.join('').indexOf(w); while (j >= 0) { mask(j, j + w.length); j = t.join('').indexOf(w, j + w.length); } }
     // 3. 單字食物（蛋、飯…）：後面要是結尾、數量或連接詞才算
     for (let i = 0; i < n; i++) {
       if (t[i] === M) continue;
@@ -157,7 +168,8 @@
     // 5. 數量配給哪個食物
     const foodsT = tokens.filter(x => x.type === 'food');
     const qtys = tokens.filter(x => x.type === 'qty');
-    const gap = (a, b) => s.slice(a, b);
+    const SI_RE = new RegExp([...SUGAR.map(x => x[0]), ...ICE].join('|'), 'g');
+    const gap = (a, b) => s.slice(a, b).replace(SI_RE, '');
     const FL_PREV = /^(大概|大約|約|差不多|有|吃了|喝了|吃|喝|是|共|總共|[，,、])*$/;
     const FL_NEXT = /^(的|左右的?)?$/;
     for (const q of qtys) {
@@ -177,7 +189,11 @@
         else { target = next; side = 'pre'; }
       } else if (prev && !prev.post) target = prev;
       else if (next && !next.pre) { target = next; side = 'pre'; }
-      if (target) { if (!target[side]) target[side] = q; else if (q.gram && !target[side].gram) target[side] = q; }
+      if (target) { const o = target[side];
+        if (!o) target[side] = q;
+        else if (q.gram && !o.gram) target[side] = q;
+        else if (q.unit.length === 2 && q.unit[0] in SIZE && o.unit === q.unit[1]) target[side] = { ...q, num: o.num }; // 「一杯大杯拿鐵」→ 1 大杯
+      }
     }
 
     // 6. 餐別：食物前面最近的那個餐別；整句只講一次就全部用它；都沒講看現在幾點
@@ -197,17 +213,32 @@
         const d = ft.food.units[0];
         grams = d.g; est = true; label = '1 ' + d.n + '（預設份量）';
       }
-      return { food: ft.food, grams: Math.round(grams * 10) / 10, label, meal, est, said: ft.said };
+      // 甜度：先看食物後面（珍奶半糖），沒有再看前面（半糖珍奶）
+      let sugar = null;
+      if (ft.food.cat === '飲料' && ft.food.c > 2) {
+        const i = foodsT.indexOf(ft), nx = foodsT[i + 1], pv = foodsT[i - 1];
+        const find = seg => { const h = SUGAR.find(x => seg.includes(x[0])); return h ? { n: h[0], k: h[1] } : null; };
+        sugar = find(s.slice(ft.end, nx ? nx.start : n)) || find(s.slice(pv ? pv.end : 0, ft.start));
+      }
+      return { food: ft.food, grams: Math.round(grams * 10) / 10, label, meal, est, said: ft.said, sugar };
     });
+    const dayOffset = /前天/.test(s) ? -2 : /昨天|昨晚|昨日/.test(s) ? -1 : 0;
 
     // 7. 沒認出來的字
     let rest = t.join('');
     for (const w of STOP) rest = rest.split(w).join(M);
     const unknown = rest.split(/[█，,、。．.；;!！?？:：~\-\d]+/).filter(x => x.length >= 2);
-    return { items, unknown, mealSaid: mealsT.length > 0 };
+    return { items, unknown, mealSaid: mealsT.length > 0, dayOffset };
+  }
+
+  // 甜度版本的飲料：id 用「原本id@半糖」，之後改份量也找得回來
+  function sugarVariant(food, n) {
+    const h = SUGAR.find(x => x[0] === n); if (!h || h[1] === 1) return food;
+    const cut = food.c * 0.85 * (1 - h[1]);
+    return { ...food, id: food.id + '@' + n, name: food.name + '（' + n + '）', c: Math.round((food.c - cut) * 10) / 10, kcal: Math.round(food.kcal - cut * 4), alias: [] };
   }
 
   function fmt(n) { return (Math.round(n * 100) / 100).toString(); }
 
-  globalThis.NL = { setFoods, search, parse, cnNum, toGrams, mealByHour };
+  globalThis.NL = { setFoods, search, parse, cnNum, toGrams, mealByHour, sugarVariant };
 })();

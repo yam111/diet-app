@@ -43,7 +43,7 @@
   let ALL = [];
   function rebuildFoods() { ALL = S.custom.concat(FOODS); NL.setFoods(ALL); }
   rebuildFoods();
-  const foodById = id => ALL.find(f => f.id === id);
+  const foodById = id => { const [b, sg] = String(id).split('@'); const f = ALL.find(x => x.id === b); return f && sg ? NL.sugarVariant(f, sg) : f; };
 
   // ---------- 計算 ----------
   function planOf(p) { const pl = PLANS.find(x => x.k === p.plan) || PLANS[0]; return pl.k === 'custom' && p.custom ? { ...pl, ...p.custom } : pl; }
@@ -64,14 +64,15 @@
     return t;
   }
   function calc(food, grams) { const x = grams / 100; return { kcal: r0(food.kcal * x), p: r1(food.p * x), c: r1(food.c * x), f: r1(food.f * x) }; }
-  function addEntry(food, grams, label, meal, extra = {}) {
+  function addEntry(food, grams, label, meal, extra = {}, date = S.date) {
     const e = { id: uid(), fid: food.id, name: food.name, grams: r1(grams), label, ...calc(food, grams), ...extra };
-    day(S.date)[meal].push(e); saveLog();
-    S.recent = [food.id, ...S.recent.filter(x => x !== food.id)].slice(0, 12); save('SG_RECENT', S.recent);
+    day(date)[meal].push(e); saveLog();
+    const rid = food.id.split('@')[0];
+    S.recent = [rid, ...S.recent.filter(x => x !== rid)].slice(0, 12); save('SG_RECENT', S.recent);
     return e;
   }
-  function findEntry(id) { const d = day(S.date); for (const m of MEALS) { const i = d[m.k].findIndex(e => e.id === id); if (i >= 0) return { meal: m.k, i, e: d[m.k][i] }; } return null; }
-  function removeEntry(id) { const f = findEntry(id); if (f) { day(S.date)[f.meal].splice(f.i, 1); saveLog(); } }
+  function findEntry(id, date = S.date) { const d = day(date); for (const m of MEALS) { const i = d[m.k].findIndex(e => e.id === id); if (i >= 0) return { meal: m.k, i, e: d[m.k][i] }; } return null; }
+  function removeEntry(id, date = S.date) { const f = findEntry(id, date); if (f) { day(date)[f.meal].splice(f.i, 1); saveLog(); } }
 
   // ---------- 畫面 ----------
   const view = $('#view');
@@ -245,8 +246,12 @@
     const r = NL.parse(text);
     // 記住用的單位（盤／杯…），之後點進去改份量才會是「2 盤」而不是「2 克」
     const unitOf = it => { const a = parseFloat(it.label); if (!(a > 0) || /克/.test(it.label)) return {}; const u = it.food.units.find(u => Math.abs(u.g * a - it.grams) < 0.6); return u ? { unit: u.n, amount: a } : {}; };
-    const added = r.items.map(it => ({ e: addEntry(it.food, it.grams, it.label.replace('（預設份量）', ''), it.meal, unitOf(it)), it }));
-    S.lastBatch = added.map(a => a.e.id);
+    // 說了「昨天／前天」就記到那天（從今天往回算），沒說就記到現在看的這天
+    const date = r.dayOffset ? addDays(today(), r.dayOffset) : S.date;
+    const added = r.items.map(it => { const food = it.sugar ? NL.sugarVariant(it.food, it.sugar.n) : it.food;
+      return { e: addEntry(food, it.grams, it.label.replace('（預設份量）', ''), it.meal, unitOf(it), date), it }; });
+    S.lastBatch = added.map(a => a.e.id); S.batchDate = date;
+    if (date !== S.date && added.length) S.date = date; // 跳到那天，回到今日畫面就看得到剛記的
     drawResult(text, added, r.unknown); render();
   }
   function drawResult(text, added, unknown) {
@@ -369,7 +374,7 @@
       case 'voice': openVoice(); break;
       case 'mic': if (!SR) break; if (rec) { try { rec.stop(); } catch (e) { } } else startRec(); break;
       case 'vsend': submitText($('#vtext').value); break;
-      case 'rdel': removeEntry(el.dataset.id); el.closest('.entry').remove(); render(); if (!$('#rlist .entry')) closeSheet(); break;
+      case 'rdel': removeEntry(el.dataset.id, S.batchDate || S.date); el.closest('.entry').remove(); render(); if (!$('#rlist .entry')) closeSheet(); break;
       case 'unk': closeSheet(); S.tab = 'search'; S.q = el.dataset.q; S.meal = null; render(); break;
       case 'close': closeSheet(); break;
       case 'start': S.profile = draft; save('SG_PROFILE', S.profile); S.tab = 'today'; view.scrollTop = 0; render(); toast('設定完成，開始記錄吧'); break;
@@ -402,8 +407,13 @@
   });
 
   function exportData() {
-    const blob = new Blob([JSON.stringify({ app: 'shiguang', v: 1, at: new Date().toISOString(), profile: S.profile, log: S.log, custom: S.custom, recent: S.recent })], { type: 'application/json' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '食光備份_' + today() + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); toast('已匯出備份檔');
+    const json = JSON.stringify({ app: 'shiguang', v: 1, at: new Date().toISOString(), profile: S.profile, log: S.log, custom: S.custom, recent: S.recent });
+    const blob = new Blob([json], { type: 'application/json' }); const fname = '食光備份_' + today() + '.json';
+    // 手機（尤其 iPhone 加到主畫面時）下載檔案常常沒反應，能用分享就用分享：可以存到「檔案」或傳 LINE
+    try { const file = new File([blob], fname, { type: 'application/json' });
+      if (matchMedia('(pointer:coarse)').matches && navigator.canShare && navigator.canShare({ files: [file] })) { navigator.share({ files: [file], title: fname }).then(() => toast('已匯出備份檔')).catch(() => { }); return; } } catch (e) { }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fname; a.style.display = 'none';
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); toast('已匯出備份檔');
   }
   function importData(file) {
     const fr = new FileReader();
@@ -417,6 +427,8 @@
   let lastToday = today();
   document.addEventListener('visibilitychange', () => { if (!document.hidden && today() !== lastToday) { if (S.date === lastToday) S.date = today(); lastToday = today(); render(); } });
 
+  // 請瀏覽器不要自動清掉紀錄（Safari 對很久沒開的網站會清本機資料）
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => { });
   render();
 })();
