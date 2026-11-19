@@ -280,3 +280,25 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;heigh
 .linkbtn{display:block;margin:14px auto 0;font-size:13px;color:var(--gold);letter-spacing:.06em;padding:6px 10px}
 .linkbtn:active{opacity:.6}
 .rcp .n small,.entry .n small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 常吃的一鍵再記 */
+.sec em{font-style:normal;letter-spacing:.04em;color:var(--dim);margin-left:8px;font-size:11px}
+.same{display:flex;align-items:center;gap:12px;width:100%;text-align:left;margin-top:2px;padding:11px 12px;border:1px dashed rgba(212,180,120,.38);border-radius:14px;background:rgba(212,180,120,.05);transition:background .2s}
+.same:active{background:rgba(212,180,120,.14)}
+.same .ic2{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;flex:none;background:rgba(212,180,120,.12);color:var(--gold)}
+.same .ic2 svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.same .n{flex:1;min-width:0}
+.same .n b{display:block;font-weight:500;font-size:14px;color:var(--gold2)}
+.same .n small{display:block;font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.same .k{text-align:right;font-family:var(--num);font-size:16px;color:var(--muted)}
+.same .k small{display:block;font-family:var(--sans);font-size:10px;color:var(--dim)}
+.food.rc{padding:0}
+.food.rc .rmain{display:flex;align-items:center;gap:12px;flex:1;min-width:0;text-align:left;padding:12px 2px}
+.food.rc .rmain:active{opacity:.6}
+.food.rc:active{opacity:1}
+.food.rc .plus{width:34px;height:34px;font-size:18px;margin-left:2px;transition:all .25s}
+.food.rc .plus:active{background:var(--gold);color:#17130a}
+.food.rc .plus.done{background:var(--gold);color:#17130a;border-color:var(--gold)}
+#toast.act{max-width:calc(100% - 32px);pointer-events:auto;display:flex;align-items:center;gap:12px;padding:8px 8px 8px 18px}
+#toast button{background:#17130a;color:#efe9dc;border-radius:99px;padding:6px 13px;font-size:12.5px;font-weight:500}
+#toast.act span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+#toast button{flex:none}

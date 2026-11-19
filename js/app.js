@@ -171,6 +171,27 @@
     S.recent = [rid, ...S.recent.filter(x => x !== rid)].slice(0, 12); save('SG_RECENT', S.recent);
     return e;
   }
+  // ---------- 常吃的一鍵再記 ----------
+  // 往前 7 天找最近一次有記的同一餐
+  function prevMeal(meal, date = S.date) {
+    for (let i = 1; i <= 7; i++) { const k = addDays(date, -i), l = S.log[k] && S.log[k][meal]; if (l && l.length) return { k, list: l }; }
+    return null;
+  }
+  function copyMeal(meal, date = S.date) {
+    const pm = prevMeal(meal, date); if (!pm) return null;
+    const list = day(date)[meal], added = pm.list.map(e => { const n = { ...e, id: uid() }; list.push(n); return n; });
+    saveLog(); return { pm, added };
+  }
+  // 這樣食物最近一次記的份量（不管哪天哪餐）
+  function lastEntry(rid) {
+    for (const k of Object.keys(S.log).sort().reverse()) { const d = S.log[k];
+      for (const m of ['snack', 'dinner', 'lunch', 'breakfast']) { const l = d[m] || []; for (let i = l.length - 1; i >= 0; i--) if (String(l[i].fid).split('@')[0] === rid) return l[i]; } }
+    return null;
+  }
+  function quickLog(rid, meal) {
+    const e = lastEntry(rid); const food = e && foodById(e.fid); if (!food) return null;
+    return addEntry(food, e.grams, e.unit ? e.amount + ' ' + e.unit : r0(e.grams) + ' 克', meal, e.unit ? { unit: e.unit, amount: e.amount } : {});
+  }
   function findEntry(id, date = S.date) { const d = day(date); for (const m of MEALS) { const i = d[m.k].findIndex(e => e.id === id); if (i >= 0) return { meal: m.k, i, e: d[m.k][i] }; } return null; }
   function removeEntry(id, date = S.date) { const f = findEntry(id, date); if (f) { day(date)[f.meal].splice(f.i, 1); saveLog(); } }
 
@@ -215,10 +236,16 @@
         <div class="legend"><b class="kp">蛋白質</b><b class="kc">碳水</b><b class="kf">脂肪</b></div></div>
       ${MEALS.map(m => { const list = d[m.k] || []; const sum = list.reduce((a, e) => a + e.kcal, 0);
         return `<div class="card meal"><header><span class="ic"><svg viewBox="0 0 24 24">${m.ic}</svg></span><b>${m.n}</b>${sum ? `<span class="num">${sum}<u>kcal</u></span>` : ''}<button class="add" data-act="addto" data-meal="${m.k}" aria-label="新增到${m.n}">+</button></header>
-        ${list.length ? list.map(entryRow).join('') : '<div class="empty">還沒有紀錄</div>'}</div>`; }).join('')}
+        ${list.length ? list.map(entryRow).join('') : sameRow(m)}</div>`; }).join('')}
       <p class="note" style="text-align:center">按下方金色麥克風，說一句「午餐吃了一盤蝦仁蛋炒飯」就會自動記錄</p>
     </div>`;
     requestAnimationFrame(() => requestAnimationFrame(() => { const fg = $('.ring .fg'); if (fg) fg.style.strokeDashoffset = fg.dataset.to; }));
+  }
+  function sameRow(m) {
+    const pm = prevMeal(m.k); if (!pm) return '<div class="empty">還沒有紀錄</div>';
+    const names = [...new Set(pm.list.map(e => e.recipe || e.name))], kc = pm.list.reduce((a, e) => a + e.kcal, 0);
+    return `<button class="same" data-act="copymeal" data-meal="${m.k}"><span class="ic2"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.5"/><path d="M20 4v4.500h-4.500"/><path d="M20 12a8 8 0 0 1-13.7 5.600L4 15.500"/><path d="M4 20v-4.500h4.500"/></svg></span>
+      <span class="n"><b>同${pm.k === addDays(S.date, -1) ? '昨天' : ' ' + shortDate(pm.k) + ' '}的${m.n}</b><small>${esc(names.slice(0, 3).join('、'))}${names.length > 3 ? ' 等 ' + names.length + ' 樣' : ''}</small></span><span class="k">${kc}<small>kcal</small></span></button>`;
   }
   function entryRow(e) {
     return `<button class="entry" data-act="edit" data-id="${e.id}"><span class="n"><b>${esc(e.name)}</b><small>${esc(e.label)}${/克/.test(e.label) ? '' : ' · ' + r0(e.grams) + ' 克'}</small></span><span class="k">${e.kcal}<small>蛋 ${r0(e.p)} · 碳 ${r0(e.c)} · 脂 ${r0(e.f)}</small></span></button>`;
@@ -237,6 +264,11 @@
   }
   function hl(name, q) { if (!q) return esc(name); const set = new Set([...q.toLowerCase()]); return [...name].map(ch => set.has(ch.toLowerCase()) ? '<mark>' + esc(ch) + '</mark>' : esc(ch)).join(''); }
   function foodRow(f, q) { const u = f.units[0], k = r0(f.kcal * u.g / 100); return `<button class="food" data-act="pick" data-fid="${esc(f.id)}"><span class="n"><b>${hl(f.name, q)}</b><small>1 ${esc(u.n)}（${u.g} 克）· ${esc(f.cat || '自訂')}${f.brand && f.brand.length ? ' · ' + esc(f.brand.slice(0, 3).join('、')) : ''}</small></span><span class="k">${k}<small>kcal</small></span><span class="plus">+</span></button>`; }
+  function recentRow(f) {
+    const e = lastEntry(f.id), vf = e && foodById(e.fid); if (!vf) return foodRow(f);
+    const amt = e.unit ? e.amount + ' ' + e.unit + '（' + r0(e.grams) + ' 克）' : r0(e.grams) + ' 克';
+    return `<div class="food rc"><button class="rmain" data-act="pick" data-fid="${esc(f.id)}" data-last="1"><span class="n"><b>${esc(vf.name)}</b><small>上次 ${esc(amt)}</small></span><span class="k">${calc(vf, e.grams).kcal}<small>kcal</small></span></button><button class="plus" data-act="quick" data-fid="${esc(f.id)}" aria-label="照上次份量再記一次${esc(vf.name)}">+</button></div>`;
+  }
   function renderResults() {
     const box = $('#results'); if (!box) return; const q = S.q.trim();
     let html = '';
@@ -251,7 +283,7 @@
         const rec = S.recent.map(foodById).filter(f => f && !f.recipe);
         html += `<div class="sec sech">我的食譜<button data-act="rnew">＋ 新增</button></div>` + (S.recipes.length ? S.recipes.map(recipeRow).join('') : '<div class="rempty">常煮的菜存成食譜（例如雞胸肉＋橄欖油＋高麗菜），以後說菜名就會照食材分開算。</div>');
         if (S.custom.length) html += '<div class="sec">我的自訂食物</div>' + S.custom.map(f => foodRow(f)).join('');
-        if (rec.length) html += '<div class="sec">最近吃過</div>' + rec.map(f => foodRow(f)).join('');
+        if (rec.length) html += `<div class="sec">最近吃過<em>按 ＋ 照上次份量直接記</em></div>` + rec.map(recentRow).join('');
         else html += '<div class="sec">常見</div>' + ['白飯', '雞蛋', '雞胸肉', '無糖豆漿', '地瓜', '蝦仁蛋炒飯', '香蕉', '拿鐵'].map(n => foodById('f_' + n)).filter(Boolean).map(f => foodRow(f)).join('');
         html += `<button class="btn ghost" style="margin-top:18px" data-act="newfood">＋ 新增自訂食物</button>`;
       }
@@ -561,7 +593,11 @@
     $('#sheets').innerHTML = `<div class="scrim" data-act="scrim" ${had ? 'style="animation:none"' : ''}><div class="sheet" ${had ? 'style="animation:none"' : ''}><div class="grab"></div>${html}</div></div>`;
   }
   function closeSheet() { if (onClose) { const f = onClose; onClose = null; f(); } $('#sheets').innerHTML = ''; }
-  let tt; function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('show'), 1900); }
+  // undo：給了就在提示旁邊放「復原」，4 秒內可以按
+  let tt, tUndo = null; function toast(msg, undo) {
+    const t = $('#toast'); tUndo = undo || null; t.textContent = ''; const sp = document.createElement('span'); sp.textContent = msg; t.appendChild(sp); t.classList.toggle('act', !!undo);
+    if (undo) { const b = document.createElement('button'); b.textContent = '復原'; b.onclick = () => { const f = tUndo; tUndo = null; t.classList.remove('show'); if (f) { f(); setTimeout(() => toast('已復原'), 250); } }; t.appendChild(b); }
+    t.classList.add('show'); clearTimeout(tt); tt = setTimeout(() => { t.classList.remove('show'); tUndo = null; }, undo ? 4000 : 1900); }
 
   // ---------- 事件 ----------
   document.addEventListener('click', ev => {
@@ -577,7 +613,13 @@
       case 'smeal': S.meal = el.dataset.meal; renderSearch(); break;
       case 'cat': S.cat = S.cat === el.dataset.cat ? '' : el.dataset.cat; renderResults(); break;
       case 'clearq': S.q = ''; renderSearch(); $('#q').focus(); break;
-      case 'pick': { const f = foodById(el.dataset.fid); if (f) openQty(f, { meal: S.meal }); break; }
+      case 'pick': { let f = foodById(el.dataset.fid); if (!f) break; const le = el.dataset.last && lastEntry(f.id), lf = le && foodById(le.fid);
+        if (lf) openQty(lf, { meal: S.meal, entry: le }); else openQty(f, { meal: S.meal }); break; }
+      case 'quick': { const m = S.meal || NL.mealByHour(new Date().getHours()), ne = quickLog(el.dataset.fid, m); if (!ne) break;
+        renderResults(); const fl = $(`#results [data-fid="${CSS.escape(el.dataset.fid)}"].plus`); if (fl) fl.classList.add('done');
+        const d = S.date; toast(`${ne.name} ${ne.label} 已記到${mealName(m)}`, () => { removeEntry(ne.id, d); renderResults(); }); break; }
+      case 'copymeal': { const d = S.date, r = copyMeal(el.dataset.meal, d); if (!r) break; render();
+        toast(`已記上${shortDate(r.pm.k) === '昨天' ? '昨天' : ' ' + shortDate(r.pm.k) + ' '}的${mealName(el.dataset.meal)} ${r.added.length} 樣`, () => { r.added.forEach(e => removeEntry(e.id, d)); render(); }); break; }
       case 'edit': { const f = findEntry(el.dataset.id); if (!f) break; const e = f.e; const food = foodById(e.fid) || { id: e.fid, name: e.name, alias: [], kcal: e.kcal / e.grams * 100, p: e.p / e.grams * 100, c: e.c / e.grams * 100, f: e.f / e.grams * 100, units: [{ n: '份', g: e.grams }] }; openQty(food, { meal: f.meal, editId: e.id, entry: e }); break; }
       case 'qunit': { const i = +el.dataset.i; if (i === Q.unit) break; const g = qGrams(); Q.unit = i; Q.amount = i < 0 ? r0(g) || 100 : 1; drawQty(); break; }
       case 'qmeal': Q.meal = el.dataset.meal; Q.amount = $('#qamt').value; drawQty(); break;
