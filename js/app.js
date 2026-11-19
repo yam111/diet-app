@@ -37,6 +37,7 @@
     log: load('SG_LOG', {}),
     custom: load('SG_CUSTOM', []),
     recent: load('SG_RECENT', []),
+    weight: load('SG_WEIGHT', {}), // { '2026-11-19': 68.4 }
     date: today(), tab: 'today', q: '', meal: null, cat: '', lastBatch: null
   };
   const saveLog = () => save('SG_LOG', S.log);
@@ -50,12 +51,74 @@
   function targets(p = S.profile) {
     const calc = 10 * p.weight + 6.25 * p.height - 5 * p.age + (p.sex === 'm' ? 5 : -161); // Mifflin-St Jeor
     const bmr = p.bmrMode === 'manual' && p.bmrIn > 0 ? p.bmrIn : calc; // 自己填（InBody 等量到的）優先
-    const tdee = bmr * p.act;
+    const tdeeCalc = bmr * p.act;
+    // 有足夠的體重＋飲食紀錄，就用「實際」消耗；跟公式差太多（±25%）就封頂，避免漏記把目標拉歪
+    const ad = p === S.profile && p.adapt !== false ? adaptive(tdeeCalc) : null;
+    const adapted = !!(ad && ad.ok);
+    const tdee = adapted ? Math.min(tdeeCalc * 1.25, Math.max(tdeeCalc * 0.75, ad.tdee)) : tdeeCalc;
     let kcal = tdee * (1 + (p.goal === 'keep' ? 0 : p.pace));
     const floor = p.sex === 'm' ? 1500 : 1200;
     const floored = kcal < floor; if (floored) kcal = floor;
     const pl = planOf(p);
-    return { bmr: r0(bmr), tdee: r0(tdee), kcal: r0(kcal), floored, plan: pl, p: r0(kcal * pl.p / 100 / 4), c: r0(kcal * pl.c / 100 / 4), f: r0(kcal * pl.f / 100 / 9) };
+    return { bmr: r0(bmr), tdee: r0(tdee), tdeeCalc: r0(tdeeCalc), adapted, ad, kcal: r0(kcal), floored, plan: pl, p: r0(kcal * pl.p / 100 / 4), c: r0(kcal * pl.c / 100 / 4), f: r0(kcal * pl.f / 100 / 9) };
+  }
+  // 體重變化反推實際消耗：最近 28 天，體重用回歸線看趨勢（不怕單天水分起伏），熱量用有好好記的那幾天平均
+  const KCAL_PER_KG = 7700;
+  function adaptive(tdeeCalc) {
+    const start = addDays(today(), -28), yest = addDays(today(), -1);
+    const ks = Object.keys(S.weight).filter(k => k >= start && k <= today()).sort();
+    const t0 = new Date(start + 'T12:00:00');
+    const pts = ks.map(k => ({ x: (new Date(k + 'T12:00:00') - t0) / 864e5, y: +S.weight[k] }));
+    const span = pts.length ? pts[pts.length - 1].x - pts[0].x : 0;
+    let days = 0, logged = 0, sum = 0;
+    if (ks.length) for (let k = ks[0]; k <= yest; k = addDays(k, 1)) { days++; const t = totals(k); if (t.n && t.kcal >= tdeeCalc * 0.4) { logged++; sum += t.kcal; } } // 吃不到四成的天多半是沒記完，不算
+    const need = [];
+    if (pts.length < 5) need.push('再量 ' + (5 - pts.length) + ' 次體重');
+    if (span < 14) need.push('體重紀錄再拉長 ' + Math.ceil(14 - span) + ' 天');
+    const needLog = Math.ceil(Math.max(days, 14) * 0.7);
+    if (days < 14 || logged < needLog) need.push('飲食記滿 ' + needLog + ' 天（目前 ' + logged + ' 天）');
+    if (need.length) return { ok: false, need, n: pts.length, logged };
+    const mx = pts.reduce((a, q) => a + q.x, 0) / pts.length, my = pts.reduce((a, q) => a + q.y, 0) / pts.length;
+    const slope = pts.reduce((a, q) => a + (q.x - mx) * (q.y - my), 0) / pts.reduce((a, q) => a + (q.x - mx) ** 2, 0); // 公斤／天
+    const avg = sum / logged;
+    return { ok: true, tdee: avg - slope * KCAL_PER_KG, avg, week: slope * 7, days, logged, n: pts.length };
+  }
+  function saveWeight(v) {
+    const n = parseFloat(v); if (!(n >= 25 && n <= 250)) return toast('體重請填 25～250 公斤');
+    S.weight[today()] = r1(n); save('SG_WEIGHT', S.weight);
+    S.profile.weight = r1(n); save('SG_PROFILE', S.profile); // 基礎代謝跟著最新體重算
+    toast('已記錄體重 ' + r1(n) + ' 公斤'); render();
+  }
+  const shortDate = k => k === today() ? '今天' : k === addDays(today(), -1) ? '昨天' : (+k.slice(5, 7)) + '/' + (+k.slice(8));
+  function weightCard() {
+    const start = addDays(today(), -29);
+    const ks = Object.keys(S.weight).filter(k => k >= start).sort();
+    const W = 320, H = 110, t0 = new Date(start + 'T12:00:00');
+    let svg = '';
+    if (ks.length) {
+      const ys = ks.map(k => S.weight[k]); const lo = Math.min(...ys) - 0.6, hi = Math.max(...ys) + 0.6;
+      const X = k => 30 + (new Date(k + 'T12:00:00') - t0) / 864e5 / 29 * (W - 38), Y = v => 8 + (hi - v) / (hi - lo) * (H - 16);
+      let ema = null; const tr = ks.map(k => { ema = ema == null ? S.weight[k] : ema + 0.25 * (S.weight[k] - ema); return X(k).toFixed(1) + ',' + Y(ema).toFixed(1); });
+      svg = `<svg class="wchart" viewBox="0 0 ${W} ${H}"><text x="0" y="14">${r1(hi - 0.6)}</text><text x="0" y="${H - 4}">${r1(lo + 0.6)}</text>
+        ${ks.length > 1 ? `<polyline points="${tr.join(' ')}"/>` : ''}${ks.map(k => `<circle cx="${X(k).toFixed(1)}" cy="${Y(S.weight[k]).toFixed(1)}" r="3"/>`).join('')}</svg>
+        <p class="note" style="margin:2px 0 0">點是每天量的，線是去掉水分起伏後的趨勢（最近 30 天）</p>`;
+    }
+    const last = ks.length ? S.weight[ks[ks.length - 1]] : null;
+    const recent = Object.keys(S.weight).sort().reverse().slice(0, 4);
+    const tw = S.weight[today()];
+    return `<div class="card"><h3>體重<em>${last != null ? last + ' kg' : ''}</em></h3>
+      ${svg || '<p class="note" style="margin:0 0 4px">每天早上起床、上完廁所、吃東西前量最準。量體重＋記飲食滿兩週，就會用你實際的體重變化校正每日目標。</p>'}
+      <div class="typebox" style="margin-top:10px"><input id="wt" type="number" inputmode="decimal" step="0.1" placeholder="今天的體重（公斤）" value="${tw != null ? tw : ''}" enterkeyhint="done"><button data-act="wsave">${tw != null ? '更新' : '記錄'}</button></div>
+      ${recent.length ? `<div class="wlist">${recent.map(k => `<span>${shortDate(k)} <b>${S.weight[k]}</b><button data-act="wdel" data-k="${k}" aria-label="刪除">×</button></span>`).join('')}</div>` : ''}</div>`;
+  }
+  function adaptCard(T) {
+    if (S.profile.adapt === false) return `<div class="card"><h3>實際消耗校正<em>已關閉</em></h3><p class="note" style="margin:0">目前只用公式算 TDEE。要打開請到「我的」。</p></div>`;
+    const a = T.ad;
+    if (!a || !a.ok) return `<div class="card"><h3>實際消耗校正<em>資料累積中</em></h3><p class="note" style="margin:0">公式算的 TDEE 可能差到一兩百大卡。量體重＋記飲食滿兩週後，會照你實際的體重變化算出真正的消耗，自動改每日目標。還需要：${(a ? a.need : ['開始量體重']).join('、')}。</p></div>`;
+    const wk = a.week, cap = r0(a.tdee) !== T.tdee;
+    return `<div class="card"><h3>實際消耗校正<em>已套用</em></h3>
+      <div class="stat2" style="margin-bottom:10px"><div><small>平均吃</small><span class="num">${r0(a.avg)}</span></div><div><small>體重每週</small><span class="num">${(wk > 0 ? '+' : '') + r1(wk)}<u style="font-size:12px;text-decoration:none"> kg</u></span></div><div class="g"><small>實際 TDEE</small><span class="num">${T.tdee}</span></div></div>
+      <p class="note" style="margin:0">最近 ${a.days} 天（有記飲食 ${a.logged} 天、量體重 ${a.n} 次）。公式算 ${T.tdeeCalc}，每日目標已改照實際消耗算${cap ? '（跟公式差太多，先以 ±25% 為限）' : ''}。飲食有漏記的話，這個數字會偏低。</p></div>`;
   }
   function day(k) { return S.log[k] || (S.log[k] = { breakfast: [], lunch: [], dinner: [], snack: [] }); }
   function totals(k) {
@@ -272,7 +335,8 @@
     const max = Math.max(T.kcal * 1.15, ...days.map(d => d.t.kcal)); const logged = days.filter(d => d.t.n);
     const avg = k => logged.length ? logged.reduce((a, d) => a + d.t[k], 0) / logged.length : 0;
     const ak = avg('kcal'), ap = avg('p'), ac = avg('c'), af = avg('f');
-    view.innerHTML = `<div class="rise"><h1 class="page">趨勢</h1><p class="sub">最近 7 天的攝取狀況</p>
+    view.innerHTML = `<div class="rise"><h1 class="page">趨勢</h1><p class="sub">體重與最近 7 天的攝取狀況</p>
+      ${weightCard()}${adaptCard(T)}
       <div class="card"><h3>每日熱量<em>目標 ${T.kcal}</em></h3><div class="chart"><div class="tl" style="bottom:${T.kcal / max * 132 + 24}px"><span>目標</span></div>
         ${days.map(d => `<div class="col ${d.t.kcal > T.kcal * 1.05 ? 'over' : ''} ${d.t.n ? '' : 'zero'} ${d.k === today() ? 'today' : ''}" data-act="goday" data-k="${d.k}"><em>${d.t.n ? r0(d.t.kcal) : ''}</em><i style="height:${d.t.kcal / max * 132}px"></i><small>${d.k === today() ? '今天' : '週' + '日一二三四五六'[new Date(d.k + 'T12:00:00').getDay()]}</small></div>`).join('')}</div></div>
       <div class="stat2"><div class="g"><small>平均熱量</small><span class="num">${r0(ak)}</span></div><div><small>有記錄</small><span class="num">${logged.length}<span style="font-size:13px;color:var(--dim)"> / 7 天</span></span></div><div><small>與目標差</small><span class="num">${logged.length ? (ak - T.kcal > 0 ? '+' : '') + r0(ak - T.kcal) : '—'}</span></div></div>
@@ -295,11 +359,12 @@
         <div class="field"><label>活動量</label><select data-f="act">${ACTS.map(a => `<option value="${a[0]}" ${+p.act === a[0] ? 'selected' : ''}>${a[1]}</option>`).join('')}</select></div>
         <div class="field"><label>基礎代謝</label><div class="seg sm nowrap" style="flex:0 0 auto"><button data-set="bmrMode" data-v="calc" class="${p.bmrMode !== 'manual' ? 'on' : ''}">用公式算</button><button data-set="bmrMode" data-v="manual" class="${p.bmrMode === 'manual' ? 'on' : ''}">自己填</button></div></div>
         ${p.bmrMode === 'manual' ? `<div class="field"><label>BMR</label><input data-f="bmrIn" type="number" inputmode="numeric" value="${p.bmrIn || ''}" placeholder="例如 1500"><span class="u">大卡</span></div>
-        <p class="note" style="margin:0">填 InBody 或體脂計量到的基礎代謝，會直接用它乘活動量算 TDEE。</p>` : ''}</div>
+        <p class="note" style="margin:0">填 InBody 或體脂計量到的基礎代謝，會直接用它乘活動量算 TDEE。</p>` : ''}
+        ${p === S.profile ? `<div class="field"><label>用體重校正</label><div class="seg sm nowrap" style="flex:0 0 auto"><button data-set="adapt" data-v="on" class="${p.adapt !== false ? 'on' : ''}">自動校正</button><button data-set="adapt" data-v="off" class="${p.adapt === false ? 'on' : ''}">只用公式</button></div></div>` : ''}</div>
       <div class="card"><h3>目標</h3>
         <div class="seg">${Object.keys(GOALS).map(k => `<button data-set="goal" data-v="${k}" class="${p.goal === k ? 'on' : ''}">${GOALS[k].n}</button>`).join('')}</div>
         ${p.goal !== 'keep' ? `<div class="seg sm" style="margin-top:8px">${g.paces.map(x => `<button data-set="pace" data-v="${x[0]}" class="${+p.pace === x[0] ? 'on' : ''}">${x[1]}</button>`).join('')}</div>` : ''}</div>
-      <div class="stat2"><div><small>BMR 基礎代謝</small><span class="num">${T.bmr}</span></div><div><small>TDEE 每日消耗</small><span class="num">${T.tdee}</span></div><div class="g"><small>每日目標</small><span class="num">${T.kcal}</span></div></div>
+      <div class="stat2"><div><small>BMR 基礎代謝</small><span class="num">${T.bmr}</span></div><div><small>${T.adapted ? 'TDEE 實際校正' : 'TDEE 每日消耗'}</small><span class="num">${T.tdee}</span></div><div class="g"><small>每日目標</small><span class="num">${T.kcal}</span></div></div>
       ${T.floored ? '<p class="note">算出來的熱量太低，已經幫你拉到安全下限（男 1500／女 1200 大卡）。</p>' : ''}
       <div class="card"><h3>飲食計畫<em>${esc(pl.n)}</em></h3><div class="macros" style="margin-bottom:12px"><div class="macro kp"><small>蛋白質 ${pl.p}%</small><span class="num">${T.p}<u> g</u></span></div><div class="macro kc"><small>碳水 ${pl.c}%</small><span class="num">${T.c}<u> g</u></span></div><div class="macro kf"><small>脂肪 ${pl.f}%</small><span class="num">${T.f}<u> g</u></span></div></div>
         <div class="plans">${PLANS.map(x => { const v = x.k === 'custom' && p.custom ? { ...x, ...p.custom } : x; return `<button class="plan ${p.plan === x.k ? 'on' : ''}" data-set="plan" data-v="${x.k}"><b>${x.n}</b><small>${x.d}</small>${stack(v.p, v.c, v.f, '', false)}<div class="pct"><span>蛋 ${v.p}</span><span>碳 ${v.c}</span><span>脂 ${v.f}</span></div></button>`; }).join('')}</div>
@@ -329,6 +394,7 @@
     const p = draft; if (!p) return;
     if (k === 'bmrMode') { p.bmrMode = v; if (v === 'manual' && !p.bmrIn) p.bmrIn = Math.round(10 * p.weight + 6.25 * p.height - 5 * p.age + (p.sex === 'm' ? 5 : -161)); }
     else if (k === 'bmrIn') { const n = parseFloat(v); if (!(n >= 800 && n <= 4000)) { toast('BMR 請填 800～4000 之間'); return render(); } p.bmrIn = Math.round(n); }
+    else if (k === 'adapt') p.adapt = v === 'on';
     else if (k === 'goal') { p.goal = v; p.pace = v === 'cut' ? -0.2 : v === 'bulk' ? 0.15 : 0; }
     else if (k === 'pace' || k === 'act') p[k] = parseFloat(v);
     else if (k === 'age' || k === 'height' || k === 'weight') { const n = parseFloat(v); const lim = { age: [10, 100], height: [100, 230], weight: [25, 250] }[k]; if (!(n >= lim[0] && n <= lim[1])) { toast('這個數字好像不太對'); return render(); } p[k] = n; }
@@ -378,6 +444,8 @@
       case 'unk': closeSheet(); S.tab = 'search'; S.q = el.dataset.q; S.meal = null; render(); break;
       case 'close': closeSheet(); break;
       case 'start': S.profile = draft; save('SG_PROFILE', S.profile); S.tab = 'today'; view.scrollTop = 0; render(); toast('設定完成，開始記錄吧'); break;
+      case 'wsave': saveWeight($('#wt').value); break;
+      case 'wdel': delete S.weight[el.dataset.k]; save('SG_WEIGHT', S.weight); toast('已刪除那天的體重'); render(); break;
       case 'export': exportData(); break;
       case 'import': $('#imp').click(); break;
     }
@@ -404,10 +472,11 @@
     if (ev.target.id === 'vtext') submitText(ev.target.value);
     else if (ev.target.id === 'qamt') { Q.amount = ev.target.value; saveQty(); }
     else if (ev.target.id === 'q') ev.target.blur();
+    else if (ev.target.id === 'wt') saveWeight(ev.target.value);
   });
 
   function exportData() {
-    const json = JSON.stringify({ app: 'shiguang', v: 1, at: new Date().toISOString(), profile: S.profile, log: S.log, custom: S.custom, recent: S.recent });
+    const json = JSON.stringify({ app: 'shiguang', v: 1, at: new Date().toISOString(), profile: S.profile, log: S.log, custom: S.custom, recent: S.recent, weight: S.weight });
     const blob = new Blob([json], { type: 'application/json' }); const fname = '食光備份_' + today() + '.json';
     // 手機（尤其 iPhone 加到主畫面時）下載檔案常常沒反應，能用分享就用分享：可以存到「檔案」或傳 LINE
     try { const file = new File([blob], fname, { type: 'application/json' });
@@ -418,8 +487,8 @@
   function importData(file) {
     const fr = new FileReader();
     fr.onload = () => { try { const d = JSON.parse(fr.result); if (d.app !== 'shiguang' || !d.profile || !d.log) throw 0;
-      S.profile = d.profile; S.log = d.log; S.custom = d.custom || []; S.recent = d.recent || [];
-      save('SG_PROFILE', S.profile); saveLog(); save('SG_CUSTOM', S.custom); save('SG_RECENT', S.recent); rebuildFoods(); render(); toast('已匯入備份'); } catch (e) { toast('這個檔案不是食光的備份'); } };
+      S.profile = d.profile; S.log = d.log; S.custom = d.custom || []; S.recent = d.recent || []; S.weight = d.weight || {};
+      save('SG_PROFILE', S.profile); saveLog(); save('SG_CUSTOM', S.custom); save('SG_RECENT', S.recent); save('SG_WEIGHT', S.weight); rebuildFoods(); render(); toast('已匯入備份'); } catch (e) { toast('這個檔案不是食光的備份'); } };
     fr.readAsText(file);
   }
 
