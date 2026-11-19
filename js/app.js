@@ -48,7 +48,8 @@
   // ---------- 計算 ----------
   function planOf(p) { const pl = PLANS.find(x => x.k === p.plan) || PLANS[0]; return pl.k === 'custom' && p.custom ? { ...pl, ...p.custom } : pl; }
   function targets(p = S.profile) {
-    const bmr = 10 * p.weight + 6.25 * p.height - 5 * p.age + (p.sex === 'm' ? 5 : -161); // Mifflin-St Jeor
+    const calc = 10 * p.weight + 6.25 * p.height - 5 * p.age + (p.sex === 'm' ? 5 : -161); // Mifflin-St Jeor
+    const bmr = p.bmrMode === 'manual' && p.bmrIn > 0 ? p.bmrIn : calc; // 自己填（InBody 等量到的）優先
     const tdee = bmr * p.act;
     let kcal = tdee * (1 + (p.goal === 'keep' ? 0 : p.pace));
     const floor = p.sex === 'm' ? 1500 : 1200;
@@ -282,7 +283,10 @@
         <div class="field"><label>年齡</label><input data-f="age" type="number" inputmode="numeric" value="${p.age}"><span class="u">歲</span></div>
         <div class="field"><label>身高</label><input data-f="height" type="number" inputmode="decimal" value="${p.height}"><span class="u">公分</span></div>
         <div class="field"><label>體重</label><input data-f="weight" type="number" inputmode="decimal" value="${p.weight}"><span class="u">公斤</span></div>
-        <div class="field"><label>活動量</label><select data-f="act">${ACTS.map(a => `<option value="${a[0]}" ${+p.act === a[0] ? 'selected' : ''}>${a[1]}</option>`).join('')}</select></div></div>
+        <div class="field"><label>活動量</label><select data-f="act">${ACTS.map(a => `<option value="${a[0]}" ${+p.act === a[0] ? 'selected' : ''}>${a[1]}</option>`).join('')}</select></div>
+        <div class="field"><label>基礎代謝</label><div class="seg sm nowrap" style="flex:0 0 auto"><button data-set="bmrMode" data-v="calc" class="${p.bmrMode !== 'manual' ? 'on' : ''}">用公式算</button><button data-set="bmrMode" data-v="manual" class="${p.bmrMode === 'manual' ? 'on' : ''}">自己填</button></div></div>
+        ${p.bmrMode === 'manual' ? `<div class="field"><label>BMR</label><input data-f="bmrIn" type="number" inputmode="numeric" value="${p.bmrIn || ''}" placeholder="例如 1500"><span class="u">大卡</span></div>
+        <p class="note" style="margin:0">填 InBody 或體脂計量到的基礎代謝，會直接用它乘活動量算 TDEE。</p>` : ''}</div>
       <div class="card"><h3>目標</h3>
         <div class="seg">${Object.keys(GOALS).map(k => `<button data-set="goal" data-v="${k}" class="${p.goal === k ? 'on' : ''}">${GOALS[k].n}</button>`).join('')}</div>
         ${p.goal !== 'keep' ? `<div class="seg sm" style="margin-top:8px">${g.paces.map(x => `<button data-set="pace" data-v="${x[0]}" class="${+p.pace === x[0] ? 'on' : ''}">${x[1]}</button>`).join('')}</div>` : ''}</div>
@@ -309,12 +313,14 @@
     view.innerHTML = `<div><h1 class="page">我的</h1><p class="sub">改了會馬上重新計算每日目標</p>${formHTML(S.profile)}
       <div class="card"><h3>資料</h3><p class="note" style="margin-top:-4px">紀錄只存在這支手機的瀏覽器裡，換手機或清除瀏覽資料前記得先備份。</p>
         <div class="btnrow"><button class="btn ghost" data-act="export">匯出備份</button><button class="btn ghost" data-act="import">匯入備份</button></div><input type="file" id="imp" accept="application/json,.json" hidden></div>
-      <p class="note">熱量與營養素為估算值（BMR 用 Mifflin-St Jeor 公式；食物數值參考衛福部食品營養成分資料庫與常見市售標示，料理類依一般做法估算），實際會因做法與份量不同。有疾病或特殊飲食需求請先詢問醫師或營養師。</p></div>`;
+      <p class="note">熱量與營養素為估算值（BMR 沒自己填時用 Mifflin-St Jeor 公式；食物數值參考衛福部食品營養成分資料庫與常見市售標示，料理類依一般做法估算），實際會因做法與份量不同。有疾病或特殊飲食需求請先詢問醫師或營養師。</p></div>`;
     view.scrollTop = y;
   }
   function setProfile(k, v) {
     const p = draft; if (!p) return;
-    if (k === 'goal') { p.goal = v; p.pace = v === 'cut' ? -0.2 : v === 'bulk' ? 0.15 : 0; }
+    if (k === 'bmrMode') { p.bmrMode = v; if (v === 'manual' && !p.bmrIn) p.bmrIn = Math.round(10 * p.weight + 6.25 * p.height - 5 * p.age + (p.sex === 'm' ? 5 : -161)); }
+    else if (k === 'bmrIn') { const n = parseFloat(v); if (!(n >= 800 && n <= 4000)) { toast('BMR 請填 800～4000 之間'); return render(); } p.bmrIn = Math.round(n); }
+    else if (k === 'goal') { p.goal = v; p.pace = v === 'cut' ? -0.2 : v === 'bulk' ? 0.15 : 0; }
     else if (k === 'pace' || k === 'act') p[k] = parseFloat(v);
     else if (k === 'age' || k === 'height' || k === 'weight') { const n = parseFloat(v); const lim = { age: [10, 100], height: [100, 230], weight: [25, 250] }[k]; if (!(n >= lim[0] && n <= lim[1])) { toast('這個數字好像不太對'); return render(); } p[k] = n; }
     else p[k] = v;
