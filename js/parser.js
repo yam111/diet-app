@@ -4,10 +4,17 @@
   let nameMap = new Map();   // 多字名稱 → 食物
   let singleMap = new Map(); // 單字別名 → 食物
   let maxLen = 2;
+  let brands = []; // [講法, 品牌名]，長的先對
+  const BRAND_SYN = { '7-11': ['7-11', '711', '小七', '統一超商', 'seven', '7eleven', '七十一', '七一一', '7 11'], 全家: ['全家', 'familymart'], 萊爾富: ['萊爾富', 'hilife'], OK: ['ok超商'],
+    麥當勞: ['麥當勞', '麥當當', 'mcdonald'], 肯德基: ['肯德基', 'kfc'], 好事多: ['好事多', 'costco', '科斯特可'], 星巴克: ['星巴克', 'starbucks', '星爸爸'],
+    '50嵐': ['50嵐', '五十嵐'], '85度C': ['85度c', '85度', '八五度'], 摩斯: ['摩斯', 'mos'], 清心福全: ['清心福全', '清心'], 'CoCo': ['coco', '都可'] };
 
   function setFoods(list) {
     foods = list;
     nameMap = new Map(); singleMap = new Map(); maxLen = 2;
+    const bs = new Map();
+    for (const f of list) for (const b of f.brand || []) for (const w of BRAND_SYN[b] || [b]) bs.set(w.toLowerCase(), b);
+    brands = [...bs].sort((a, b) => b[0].length - a[0].length);
     const put = (k, f, primary) => {
       k = k.toLowerCase();
       const m = k.length === 1 ? singleMap : nameMap;
@@ -22,6 +29,18 @@
   function search(q, limit = 40) {
     q = (q || '').trim().toLowerCase().replace(/\s+/g, '');
     if (!q) return [];
+    // 「麥當勞」→ 那家的全部；「麥當勞薯條」→ 先找那家的薯條
+    for (const [w, b] of brands) {
+      if (!q.startsWith(w)) continue;
+      const rest = q.slice(w.length).replace(/^的/, '');
+      const mine = foods.filter(f => (f.brand || []).includes(b)).sort((x, y) => x.brand.length - y.brand.length);
+      if (!rest) return mine.slice(0, limit);
+      const hit = searchIn(rest, foods, 200);
+      return [...hit.filter(f => mine.includes(f)), ...hit.filter(f => !mine.includes(f))].slice(0, limit);
+    }
+    return searchIn(q, foods, limit);
+  }
+  function searchIn(q, foods, limit) {
     const qs = [...q];
     const out = [];
     for (const f of foods) {
@@ -45,6 +64,7 @@
         if (s && s + base > best) best = s + base;
       }
       if (!best && f.cat && f.cat.includes(q)) best = 20;
+      if (!best && f.brand && f.brand.some(b => b.toLowerCase().includes(q))) best = 30;
       if (best) out.push({ f, s: best });
     }
     out.sort((a, b) => b.s - a.s || a.f.name.length - b.f.name.length);
@@ -138,6 +158,14 @@
       const cur = t.join('');
       while ((m = re.exec(cur))) { tokens.push({ type: 'meal', start: m.index, end: m.index + m[0].length, meal }); mask(m.index, m.index + m[0].length); }
     }
+    // 2.2 品牌（麥當勞、全家…）：記下來挑那家的品項，字本身遮掉
+    const saidBrands = [];
+    for (const [w, b] of brands) { let j = t.join('').indexOf(w); while (j >= 0) { if (!saidBrands.includes(b)) saidBrands.push(b); mask(j, j + w.length); j = t.join('').indexOf(w, j + w.length); } }
+    // 2.3 飯量：「少飯」「飯多」「不要飯」
+    let riceK = 1;
+    for (const [re, k] of [[/飯少一點|少飯|飯少|飯減半|半飯/, 0.6], [/不要飯|飯不要|沒吃飯|飯沒吃|不吃飯/, 0], [/飯加量|加飯|飯多|大碗飯/, 1.4]]) {
+      const m = re.exec(t.join('')); if (m) { riceK = k; mask(m.index, m.index + m[0].length); }
+    }
     // 2.5 甜度冰塊（半糖、少冰…）先遮起來，「一杯半糖」的「半」才不會被當成半杯
     for (const w of [...SUGAR.map(x => x[0]), ...ICE]) { let j = t.join('').indexOf(w); while (j >= 0) { mask(j, j + w.length); j = t.join('').indexOf(w, j + w.length); } }
     // 3. 單字食物（蛋、飯…）：後面要是結尾、數量或連接詞才算
@@ -164,6 +192,13 @@
       for (const q of tokens) if (q.type === 'qty') mask(q.start, q.end);
     }
     tokens.sort((a, b) => a.start - b.start);
+    if (saidBrands.length) for (const tk of tokens) {
+      if (tk.type !== 'food') continue;
+      const w = tk.said;
+      // 那家專屬的品項優先（全家拿鐵 > 各家都有的拿鐵）
+      const c = foods.filter(f => (f.brand || []).some(b => saidBrands.includes(b)) && [f.name, ...f.alias].some(n => n.toLowerCase().includes(w)));
+      if (c.length) tk.food = c.sort((a, b) => a.brand.length - b.brand.length || a.name.length - b.name.length)[0];
+    }
 
     // 5. 數量配給哪個食物
     const foodsT = tokens.filter(x => x.type === 'food');
@@ -199,11 +234,68 @@
     // 6. 餐別：食物前面最近的那個餐別；整句只講一次就全部用它；都沒講看現在幾點
     const mealsT = tokens.filter(x => x.type === 'meal');
     const fallback = mealsT.length ? mealsT[0].meal : mealByHour(hour == null ? new Date().getHours() + new Date().getMinutes() / 60 : hour);
-    const items = foodsT.map(ft => {
-      const qs = [ft.pre, ft.post].filter(Boolean);
-      const q = qs.find(x => x.gram) || qs[0];
-      const before = [...mealsT].reverse().find(m => m.end <= ft.start);
-      const meal = before ? before.meal : fallback;
+    // 6.5 套餐：「鯖魚便當」＝鯖魚＋便當；後面講的配菜歸給它
+    const COMBOS = globalThis.COMBOS || {};
+    const by = name => foods.find(f => f.name === name);
+    for (let i = 0; i + 1 < foodsT.length; i++) {
+      const a = foodsT[i], b = foodsT[i + 1];
+      if (b.food.name === '便當' && b.start === a.end && !COMBOS[a.food.name] && /蛋白質|便當菜|小吃/.test(a.food.cat)) { b.comboMain = a; a.absorbed = true; }
+    }
+    const SIDE_MARK = /配菜|小菜|菜色|附餐|菜有|菜是|附|配/;
+    const BREAK = /還有|然後|另外|以及|再|又|加|喝|點心|飲料|早餐|午餐|晚餐|宵夜/;
+    const host = ft => !ft.absorbed && !ft.side && (COMBOS[ft.food.name] || ft.comboMain || /飯麵|連鎖餐廳|異國/.test(ft.food.cat));
+    for (let i = 0; i < foodsT.length; i++) {
+      const h = foodsT[i]; if (!host(h)) continue;
+      let prevEnd = h.end, marked = false;
+      for (let j = i + 1; j < foodsT.length; j++) {
+        const x = foodsT[j]; if (x.absorbed) continue;
+        const g = gap(prevEnd, x.start);
+        if (mealsT.some(m => m.start >= prevEnd && m.end <= x.start)) break;
+        if (j === i + 1 || !marked) { if (SIDE_MARK.test(g)) marked = true; }
+        if (BREAK.test(g.replace(SIDE_MARK, ''))) break;
+        const okCat = marked ? /蔬菜|便當菜|蛋豆|蛋白質|小吃|主食/.test(x.food.cat) : /蔬菜|便當菜/.test(x.food.cat) || (/蛋豆|蛋白質/.test(x.food.cat) && /蛋|豆/.test(x.food.name));
+        if (!okCat) break;
+        if (!marked && !(COMBOS[h.food.name] || h.comboMain)) break; // 一般飯麵後面要講「配菜」才算
+        x.side = h; prevEnd = x.end;
+      }
+    }
+
+    const COUNT_U = ['顆', '個', '片', '塊', '支', '隻', '條', '根', '粒', '串', '樣'];
+    const mkItem = (food, grams, label, meal, est, said, extra) => ({ food, grams: Math.round(grams * 10) / 10, label, meal, est, said, sugar: null, ...extra });
+    const qtyOf = ft => { const qs = [ft.pre, ft.post].filter(Boolean); return qs.find(x => x.gram) || qs[0]; };
+    const mealOf = ft => { const before = [...mealsT].reverse().find(m => m.end <= ft.start); return before ? before.meal : fallback; };
+    const items = [];
+    for (const ft of foodsT) {
+      if (ft.absorbed || ft.side) continue;
+      const combo = ft.comboMain ? { rice: 200, main: [[ft.comboMain.food.name, 1]], sides: 3, mainTok: ft.comboMain } : COMBOS[ft.food.name];
+      if (!combo) { items.push(plainItem(ft)); for (const x of foodsT) if (x.side === ft) items.push(sideItem(x, ft.food.name, mealOf(ft))); continue; }
+      const meal = mealOf(ft), q = qtyOf(ft);
+      const k = q && !q.gram ? q.num : 1;
+      const name = ft.comboMain ? ft.comboMain.food.name + '便當' : ft.food.name;
+      const sides = foodsT.filter(x => x.side === ft);
+      const riceSide = sides.find(x => x.food.name === '白飯' || x.food.name === '糙米飯' || x.food.name === '五穀飯');
+      const extra = { combo: name };
+      if (riceSide) { const r = plainItem(riceSide); r.label = name + '・' + r.label.replace('（預設份量）', ''); r.combo = name; r.meal = meal; items.push(r); }
+      else if (riceK > 0) { const rf = by('白飯'); items.push(mkItem(rf, combo.rice * k * riceK, name + '・' + Math.round(combo.rice * k * riceK) + ' 克', meal, true, '飯', extra)); }
+      for (const [mn, mk] of combo.main) {
+        const mt = combo.mainTok, mf = mt ? mt.food : by(mn);
+        if (mt && qtyOf(mt)) { const r = plainItem(mt); r.label = name + '・' + r.label; r.combo = name; r.meal = meal; items.push(r); continue; }
+        const u = mf.units[0];
+        items.push(mkItem(mf, u.g * mk * k, name + '・' + fmt(mk * k) + ' ' + u.n, meal, true, mn, extra));
+      }
+      const realSides = sides.filter(x => x !== riceSide);
+      if (realSides.length) for (const x of realSides) items.push(sideItem(x, name, meal));
+      else if (combo.sides) { const sf = by('綜合配菜'); items.push(mkItem(sf, sf.units[0].g * combo.sides * k, name + '・' + fmt(combo.sides * k) + ' 樣配菜', meal, true, '配菜', extra)); }
+    }
+    function sideItem(x, name, meal) {
+      if (qtyOf(x)) { const r = plainItem(x); r.label = name + '配菜・' + r.label; r.combo = name; r.meal = meal; return r; }
+      const u = x.food.units.find(u => u.n === '樣') || (COUNT_U.includes(x.food.units[0].n) && x.food.units[0].g <= 80 ? x.food.units[0] : null);
+      const g = u ? u.g : 55;
+      return mkItem(x.food, g, name + '配菜・' + (u ? '1 ' + u.n : '55 克'), meal, true, x.said, { combo: name });
+    }
+    function plainItem(ft) {
+      const q = qtyOf(ft);
+      const meal = mealOf(ft);
       let grams, label, est = false;
       if (q) {
         const r = toGrams(ft.food, q.num, q.unit);
@@ -215,13 +307,13 @@
       }
       // 甜度：先看食物後面（珍奶半糖），沒有再看前面（半糖珍奶）
       let sugar = null;
-      if (ft.food.cat === '飲料' && ft.food.c > 2) {
+      if (/飲料|手搖飲|咖啡/.test(ft.food.cat) && ft.food.c > 2) {
         const i = foodsT.indexOf(ft), nx = foodsT[i + 1], pv = foodsT[i - 1];
         const find = seg => { const h = SUGAR.find(x => seg.includes(x[0])); return h ? { n: h[0], k: h[1] } : null; };
         sugar = find(s.slice(ft.end, nx ? nx.start : n)) || find(s.slice(pv ? pv.end : 0, ft.start));
       }
       return { food: ft.food, grams: Math.round(grams * 10) / 10, label, meal, est, said: ft.said, sugar };
-    });
+    }
     // 沒講日期＝null（記到正在看的那天）；講了「今天」＝0（就算正在看昨天也記到今天）
     const dayOffset = /前天/.test(s) ? -2 : /昨天|昨晚|昨日/.test(s) ? -1 : /今天|今日|今早|今晚/.test(s) ? 0 : null;
 

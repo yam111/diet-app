@@ -201,7 +201,7 @@
   }
 
   // ---------- 搜尋 ----------
-  const CATS = ['主食', '飯麵', '早餐', '蛋白質', '蛋豆', '便當菜', '蔬菜', '水果', '小吃', '速食', '超商', '飲料', '湯', '點心', '油脂堅果'];
+  const CATS = ['主食', '飯麵', '早餐', '蛋白質', '蛋豆', '便當菜', '蔬菜', '水果', '小吃', '速食', '超商', '連鎖餐廳', '好事多', '異國', '飲料', '手搖飲', '咖啡', '湯', '點心', '油脂堅果'];
   function renderSearch() {
     if (!S.meal) S.meal = NL.mealByHour(new Date().getHours() + new Date().getMinutes() / 60);
     view.innerHTML = `<div>
@@ -212,7 +212,7 @@
     renderResults();
   }
   function hl(name, q) { if (!q) return esc(name); const set = new Set([...q.toLowerCase()]); return [...name].map(ch => set.has(ch.toLowerCase()) ? '<mark>' + esc(ch) + '</mark>' : esc(ch)).join(''); }
-  function foodRow(f, q) { const u = f.units[0], k = r0(f.kcal * u.g / 100); return `<button class="food" data-act="pick" data-fid="${esc(f.id)}"><span class="n"><b>${hl(f.name, q)}</b><small>1 ${esc(u.n)}（${u.g} 克）· ${esc(f.cat || '自訂')}</small></span><span class="k">${k}<small>kcal</small></span><span class="plus">+</span></button>`; }
+  function foodRow(f, q) { const u = f.units[0], k = r0(f.kcal * u.g / 100); return `<button class="food" data-act="pick" data-fid="${esc(f.id)}"><span class="n"><b>${hl(f.name, q)}</b><small>1 ${esc(u.n)}（${u.g} 克）· ${esc(f.cat || '自訂')}${f.brand && f.brand.length ? ' · ' + esc(f.brand.slice(0, 3).join('、')) : ''}</small></span><span class="k">${k}<small>kcal</small></span><span class="plus">+</span></button>`; }
   function renderResults() {
     const box = $('#results'); if (!box) return; const q = S.q.trim();
     let html = '';
