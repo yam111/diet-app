@@ -246,8 +246,8 @@
     const r = NL.parse(text);
     // 記住用的單位（盤／杯…），之後點進去改份量才會是「2 盤」而不是「2 克」
     const unitOf = it => { const a = parseFloat(it.label); if (!(a > 0) || /克/.test(it.label)) return {}; const u = it.food.units.find(u => Math.abs(u.g * a - it.grams) < 0.6); return u ? { unit: u.n, amount: a } : {}; };
-    // 說了「昨天／前天」就記到那天（從今天往回算），沒說就記到現在看的這天
-    const date = r.dayOffset ? addDays(today(), r.dayOffset) : S.date;
+    // 說了「今天／昨天／前天」就記到那天（從今天往回算），沒說就記到現在看的這天
+    const date = r.dayOffset != null ? addDays(today(), r.dayOffset) : S.date;
     const added = r.items.map(it => { const food = it.sugar ? NL.sugarVariant(it.food, it.sugar.n) : it.food;
       return { e: addEntry(food, it.grams, it.label.replace('（預設份量）', ''), it.meal, unitOf(it), date), it }; });
     S.lastBatch = added.map(a => a.e.id); S.batchDate = date;

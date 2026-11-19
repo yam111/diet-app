@@ -50,7 +50,11 @@ eq('q10', NL.sugarVariant(FOODS.find(f => f.name === '珍珠奶茶'), '半糖').
 eq('q11', NL.parse('昨天晚餐吃了牛肉麵', 12).dayOffset, -1);
 eq('q12', NL.parse('前天早餐吃了稀飯', 12).dayOffset, -2);
 eq('q13', NL.parse('昨晚吃了雞腿便當', 12).items[0].meal, 'dinner');
-eq('q14', NL.parse('午餐吃了雞腿便當', 12).dayOffset, 0);
+eq('q14', NL.parse('午餐吃了雞腿便當', 12).dayOffset, null);
+eq('q18', NL.parse('今天早餐吃了稀飯', 12).dayOffset, 0);
+eq('q19', P('今晚吃了牛肉麵'), '牛肉麵:700:d');
+eq('q20', P('今早吃了一個蛋餅'), '蛋餅:110:b');
+eq('q21', NL.parse('今晚吃了牛肉麵', 12).unknown, []);
 eq('q15', P('昨天晚餐吃了牛肉麵和一杯半糖珍奶'), '牛肉麵:700:d 珍珠奶茶:700:d');
 eq('q16', P('珍奶半糖少冰兩杯'), '珍珠奶茶:1400:l');
 eq('q17', P('一杯微糖去冰紅茶'), '紅茶:500:l');
