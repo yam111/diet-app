@@ -29,7 +29,7 @@
     { k: 'lowc', n: '低碳飲食', d: '少澱粉、多蛋白質與油脂', p: 30, c: 20, f: 50 },
     { k: 'dash', n: '得舒飲食', d: '高纖低脂、顧血壓', p: 18, c: 55, f: 27 },
     { k: 'gain', n: '增肌高碳', d: '練得兇、要吃得夠', p: 25, c: 50, f: 25 },
-    { k: 'custom', n: '自訂比例', d: '自己拉三大營養素比例', p: 30, c: 40, f: 30 },
+    { k: 'custom', n: '自訂比例', d: '自己調碳水和脂肪的比例', p: 30, c: 40, f: 30 },
   ];
 
   const S = {
@@ -48,6 +48,18 @@
 
   // ---------- 計算 ----------
   function planOf(p) { const pl = PLANS.find(x => x.k === p.plan) || PLANS[0]; return pl.k === 'custom' && p.custom ? { ...pl, ...p.custom } : pl; }
+  // 蛋白質照體重算（每公斤幾克），剩下的熱量照飲食計畫分給碳水和脂肪
+  const PKG = { cut: 1.8, keep: 1.4, bulk: 1.6 };
+  const pkgOf = p => p.pkg > 0 ? p.pkg : PKG[p.goal] || 1.6;
+  const protW = p => p.goalW > 0 ? p.goalW : p.weight; // 體重過重的人用目標體重算
+  function macros(kcal, p, pl) {
+    let pg = pkgOf(p) * protW(p); const pcap = pg * 4 > kcal * 0.4; if (pcap) pg = kcal * 0.4 / 4; // 蛋白質最多佔四成熱量
+    const rem = kcal - pg * 4; let fg = rem * pl.f / (pl.c + pl.f) / 9;
+    if (fg * 9 < kcal * 0.2) fg = kcal * 0.2 / 9; // 脂肪至少兩成，荷爾蒙需要
+    const cg = Math.max(0, (rem - fg * 9) / 4);
+    const pct = v => r0(v / kcal * 100);
+    return { p: r0(pg), c: r0(cg), f: r0(fg), pcap, pct: { p: pct(pg * 4), c: pct(cg * 4), f: pct(fg * 9) } };
+  }
   function targets(p = S.profile) {
     const calc = 10 * p.weight + 6.25 * p.height - 5 * p.age + (p.sex === 'm' ? 5 : -161); // Mifflin-St Jeor
     const bmr = p.bmrMode === 'manual' && p.bmrIn > 0 ? p.bmrIn : calc; // 自己填（InBody 等量到的）優先
@@ -60,7 +72,8 @@
     const floor = p.sex === 'm' ? 1500 : 1200;
     const floored = kcal < floor; if (floored) kcal = floor;
     const pl = planOf(p);
-    return { bmr: r0(bmr), tdee: r0(tdee), tdeeCalc: r0(tdeeCalc), adapted, ad, kcal: r0(kcal), floored, plan: pl, p: r0(kcal * pl.p / 100 / 4), c: r0(kcal * pl.c / 100 / 4), f: r0(kcal * pl.f / 100 / 9) };
+    kcal = r0(kcal);
+    return { bmr: r0(bmr), tdee: r0(tdee), tdeeCalc: r0(tdeeCalc), adapted, ad, kcal, floored, plan: pl, ...macros(kcal, p, pl) };
   }
   // 體重變化反推實際消耗：最近 28 天，體重用回歸線看趨勢（不怕單天水分起伏），熱量用有好好記的那幾天平均
   const KCAL_PER_KG = 7700;
@@ -174,7 +187,7 @@
       <div class="macros">${macro('p', '蛋白質', t.p, T.p)}${macro('c', '碳水', t.c, T.c)}${macro('f', '脂肪', t.f, T.f)}</div>
       <div class="card ratio"><h3>營養素比例<em>${esc(T.plan.n)}</em></h3>
         <div class="row"><span>實際</span>${t.kcal ? stack(pk, ck, fk) : '<div class="stack"></div>'}</div>
-        <div class="row"><span>目標</span>${stack(T.plan.p, T.plan.c, T.plan.f, 'ghost')}</div>
+        <div class="row"><span>目標</span>${stack(T.p * 4, T.c * 4, T.f * 9, 'ghost')}</div>
         <div class="legend"><b class="kp">蛋白質</b><b class="kc">碳水</b><b class="kf">脂肪</b></div></div>
       ${MEALS.map(m => { const list = d[m.k] || []; const sum = list.reduce((a, e) => a + e.kcal, 0);
         return `<div class="card meal"><header><span class="ic"><svg viewBox="0 0 24 24">${m.ic}</svg></span><b>${m.n}</b>${sum ? `<span class="num">${sum}<u>kcal</u></span>` : ''}<button class="add" data-act="addto" data-meal="${m.k}" aria-label="新增到${m.n}">+</button></header>
@@ -342,7 +355,7 @@
       <div class="stat2"><div class="g"><small>平均熱量</small><span class="num">${r0(ak)}</span></div><div><small>有記錄</small><span class="num">${logged.length}<span style="font-size:13px;color:var(--dim)"> / 7 天</span></span></div><div><small>與目標差</small><span class="num">${logged.length ? (ak - T.kcal > 0 ? '+' : '') + r0(ak - T.kcal) : '—'}</span></div></div>
       <div class="card ratio"><h3>平均營養素比例<em>${esc(T.plan.n)}</em></h3>
         <div class="row"><span>實際</span>${logged.length ? stack(ap * 4, ac * 4, af * 9) : '<div class="stack"></div>'}</div>
-        <div class="row"><span>目標</span>${stack(T.plan.p, T.plan.c, T.plan.f, 'ghost')}</div>
+        <div class="row"><span>目標</span>${stack(T.p * 4, T.c * 4, T.f * 9, 'ghost')}</div>
         <div class="legend"><b class="kp">蛋白質 ${r0(ap)} g</b><b class="kc">碳水 ${r0(ac)} g</b><b class="kf">脂肪 ${r0(af)} g</b></div></div>
       <p class="note" style="text-align:center">點任何一天的長條可以回去看那天的紀錄</p></div>`;
   }
@@ -366,13 +379,19 @@
         ${p.goal !== 'keep' ? `<div class="seg sm" style="margin-top:8px">${g.paces.map(x => `<button data-set="pace" data-v="${x[0]}" class="${+p.pace === x[0] ? 'on' : ''}">${x[1]}</button>`).join('')}</div>` : ''}</div>
       <div class="stat2"><div><small>BMR 基礎代謝</small><span class="num">${T.bmr}</span></div><div><small>${T.adapted ? 'TDEE 實際校正' : 'TDEE 每日消耗'}</small><span class="num">${T.tdee}</span></div><div class="g"><small>每日目標</small><span class="num">${T.kcal}</span></div></div>
       ${T.floored ? '<p class="note">算出來的熱量太低，已經幫你拉到安全下限（男 1500／女 1200 大卡）。</p>' : ''}
-      <div class="card"><h3>飲食計畫<em>${esc(pl.n)}</em></h3><div class="macros" style="margin-bottom:12px"><div class="macro kp"><small>蛋白質 ${pl.p}%</small><span class="num">${T.p}<u> g</u></span></div><div class="macro kc"><small>碳水 ${pl.c}%</small><span class="num">${T.c}<u> g</u></span></div><div class="macro kf"><small>脂肪 ${pl.f}%</small><span class="num">${T.f}<u> g</u></span></div></div>
-        <div class="plans">${PLANS.map(x => { const v = x.k === 'custom' && p.custom ? { ...x, ...p.custom } : x; return `<button class="plan ${p.plan === x.k ? 'on' : ''}" data-set="plan" data-v="${x.k}"><b>${x.n}</b><small>${x.d}</small>${stack(v.p, v.c, v.f, '', false)}<div class="pct"><span>蛋 ${v.p}</span><span>碳 ${v.c}</span><span>脂 ${v.f}</span></div></button>`; }).join('')}</div>
+      <div class="card"><h3>飲食計畫<em>${esc(pl.n)}</em></h3><div class="macros" style="margin-bottom:12px"><div class="macro kp"><small>蛋白質 ${T.pct.p}%</small><span class="num">${T.p}<u> g</u></span></div><div class="macro kc"><small>碳水 ${T.pct.c}%</small><span class="num">${T.c}<u> g</u></span></div><div class="macro kf"><small>脂肪 ${T.pct.f}%</small><span class="num">${T.f}<u> g</u></span></div></div>
+        <div class="slider kp"><span>蛋白質</span><input type="range" min="1.2" max="2.4" step="0.1" value="${pkgOf(p)}" data-pk="1"><b id="rpk">${pkgOf(p).toFixed(1)}</b></div>
+        <p class="note" style="margin:0 0 4px" id="pknote">${pkNote(p, T)}</p>
+        <div class="field" style="border-top:0;padding-top:4px"><label>用目標體重算</label><input data-f="goalW" type="number" inputmode="decimal" value="${p.goalW || ''}" placeholder="不填＝現在"><span class="u">公斤</span></div>
+        <p class="note" style="margin:0 0 14px">體重過重的人填目標體重，蛋白質才不會算太多。</p>
+        <div class="plans">${PLANS.map(x => { const v = x.k === 'custom' && p.custom ? { ...x, ...p.custom } : x; const m = macros(T.kcal, p, v).pct; return `<button class="plan ${p.plan === x.k ? 'on' : ''}" data-set="plan" data-v="${x.k}"><b>${x.n}</b><small>${x.d}</small>${stack(m.p, m.c, m.f, '', false)}<div class="pct"><span>蛋 ${m.p}</span><span>碳 ${m.c}</span><span>脂 ${m.f}</span></div></button>`; }).join('')}</div>
         ${p.plan === 'custom' ? `<div style="margin-top:14px">
-          <div class="slider kp"><span>蛋白質</span><input type="range" min="10" max="50" step="5" value="${pl.p}" data-r="p"><b id="rp">${pl.p}%</b></div>
-          <div class="slider kf"><span>脂肪</span><input type="range" min="10" max="80" step="5" value="${pl.f}" data-r="f"><b id="rf">${pl.f}%</b></div>
-          <div class="slider kc"><span>碳水</span><input type="range" min="0" max="80" step="5" value="${pl.c}" disabled><b id="rc">${pl.c}%</b></div>
-          <p class="note" style="margin:6px 0 0">拉蛋白質跟脂肪，剩下的自動給碳水。</p></div>` : ''}</div>`;
+          <div class="slider kf"><span>脂肪</span><input type="range" min="10" max="90" step="5" value="${cfShare(pl)}" data-r="f"><b id="rf">${cfShare(pl)}%</b></div>
+          <p class="note" style="margin:6px 0 0" id="rcf">蛋白質以外的熱量：脂肪 ${cfShare(pl)}%、碳水 ${100 - cfShare(pl)}%（脂肪至少佔全天兩成）</p></div>` : ''}</div>`;
+  }
+  const cfShare = pl => Math.round(pl.f / (pl.c + pl.f) * 20) * 5;
+  function pkNote(p, T) {
+    return `每公斤體重 ${pkgOf(p).toFixed(1)} 克 × ${protW(p)} 公斤${p.goalW > 0 ? '（目標體重）' : ''} ＝ ${r0(pkgOf(p) * protW(p))} 克${T.pcap ? `，超過全天熱量四成，先以 ${T.p} 克為限` : ''}。預設減脂 1.8、維持 1.4、增重 1.6；有在練又很精瘦可以往上調。`;
   }
   const DEF = { sex: 'm', age: 30, height: 172, weight: 70, act: 1.375, goal: 'cut', pace: -0.2, plan: 'highp', custom: { p: 30, c: 40, f: 30 } };
   function renderOnboard() {
@@ -395,7 +414,8 @@
     if (k === 'bmrMode') { p.bmrMode = v; if (v === 'manual' && !p.bmrIn) p.bmrIn = Math.round(10 * p.weight + 6.25 * p.height - 5 * p.age + (p.sex === 'm' ? 5 : -161)); }
     else if (k === 'bmrIn') { const n = parseFloat(v); if (!(n >= 800 && n <= 4000)) { toast('BMR 請填 800～4000 之間'); return render(); } p.bmrIn = Math.round(n); }
     else if (k === 'adapt') p.adapt = v === 'on';
-    else if (k === 'goal') { p.goal = v; p.pace = v === 'cut' ? -0.2 : v === 'bulk' ? 0.15 : 0; }
+    else if (k === 'goal') { p.goal = v; p.pace = v === 'cut' ? -0.2 : v === 'bulk' ? 0.15 : 0; delete p.pkg; } // 換目標，蛋白質回到那個目標的預設
+    else if (k === 'goalW') { if (String(v).trim() === '') delete p.goalW; else { const n = parseFloat(v); if (!(n >= 25 && n <= 250)) { toast('目標體重請填 25～250 公斤'); return render(); } p.goalW = r1(n); } }
     else if (k === 'pace' || k === 'act') p[k] = parseFloat(v);
     else if (k === 'age' || k === 'height' || k === 'weight') { const n = parseFloat(v); const lim = { age: [10, 100], height: [100, 230], weight: [25, 250] }[k]; if (!(n >= lim[0] && n <= lim[1])) { toast('這個數字好像不太對'); return render(); } p[k] = n; }
     else p[k] = v;
@@ -455,16 +475,15 @@
     if (t.id === 'q') { S.q = t.value; const b = $('[data-act=clearq]'); if (b) b.hidden = !S.q; renderResults(); }
     else if (t.id === 'qamt') { Q.amount = t.value; updQty(); }
     else if (t.dataset.r) {
-      const p = draft; const c = { ...(p.custom || { p: 30, c: 40, f: 30 }) }; c[t.dataset.r] = +t.value;
-      if (c.p + c.f > 100) { if (t.dataset.r === 'p') c.f = 100 - c.p; else c.p = 100 - c.f; }
-      c.c = 100 - c.p - c.f; p.custom = c;
-      $('#rp').textContent = c.p + '%'; $('#rf').textContent = c.f + '%'; $('#rc').textContent = c.c + '%';
+      const p = draft; const f = +t.value; p.custom = { c: 100 - f, f };
+      $('#rf').textContent = f + '%'; $('#rcf').textContent = '蛋白質以外的熱量：脂肪 ' + f + '%、碳水 ' + (100 - f) + '%（脂肪至少佔全天兩成）';
     }
+    else if (t.dataset.pk) { const p = draft; p.pkg = +t.value; $('#rpk').textContent = p.pkg.toFixed(1); $('#pknote').textContent = pkNote(p, targets(p)); }
   });
   document.addEventListener('change', ev => {
     const t = ev.target;
     if (t.dataset.f) setProfile(t.dataset.f, t.value);
-    else if (t.dataset.r) { if (S.profile) save('SG_PROFILE', S.profile); render(); }
+    else if (t.dataset.r || t.dataset.pk) { if (S.profile) save('SG_PROFILE', S.profile); render(); }
     else if (t.id === 'imp' && t.files[0]) importData(t.files[0]);
   });
   document.addEventListener('keydown', ev => {
