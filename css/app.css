@@ -124,7 +124,7 @@ body.onboard .tabbar{display:none}
 .field:first-of-type{border-top:0}
 .field label{font-size:14px;color:var(--muted);flex:none}
 .field input,.field select{text-align:right;font-family:var(--num);font-size:19px;width:110px;padding:2px 0;-moz-appearance:textfield;appearance:textfield}
-.field select{font-family:var(--sans);font-size:14px;width:auto;max-width:210px;appearance:none;color:var(--gold2);direction:rtl}
+.field select{font-family:var(--sans);font-size:16px;width:auto;max-width:210px;appearance:none;color:var(--gold2);direction:rtl}
 .field select option{background:#1b2420;color:var(--text);direction:ltr}
 .field input::-webkit-outer-spin-button,.field input::-webkit-inner-spin-button{-webkit-appearance:none}
 .field .u{font-size:12px;color:var(--dim);width:30px;flex:none;text-align:left;margin-left:-4px}
@@ -213,7 +213,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;heigh
 .heard{font-family:var(--serif);font-size:19px;line-height:1.6;min-height:62px;padding:0 6px;letter-spacing:.03em}
 .heard.ph{color:var(--dim);font-size:14.5px;font-family:var(--sans)}
 .typebox{display:flex;gap:8px;margin-top:16px}
-.typebox input{flex:1;background:var(--s1);border:1px solid var(--line2);border-radius:15px;padding:13px 14px;font-size:15px;min-width:0}
+.typebox input{flex:1;background:var(--s1);border:1px solid var(--line2);border-radius:15px;padding:13px 14px;font-size:16px;min-width:0}
 .typebox button{padding:0 18px;border-radius:15px;background:var(--s3);color:var(--gold2);font-size:14px;border:1px solid var(--line2)}
 .result .entry:first-of-type{border-top:0}
 .result .x{width:28px;height:28px;border-radius:50%;color:var(--muted);font-size:17px;flex:none;border:1px solid var(--line)}

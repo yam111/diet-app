@@ -96,7 +96,7 @@
     const T = targets(), t = totals(S.date), d = day(S.date);
     const left = T.kcal - t.kcal, over = left < 0;
     const C = 2 * Math.PI * 78, pct = Math.min(1, t.kcal / T.kcal);
-    const macro = (k, n, eat, tar) => { const l = tar - eat; return `<div class="macro k${k}"><small>${n}</small><span class="num">${r0(eat)}<u> / ${tar} g</u></span><div class="bar"><i style="width:${Math.min(100, eat / tar * 100)}%"></i></div><em class="${l < 0 ? 'over' : ''}">${l < 0 ? '超過 ' + r0(-l) + ' g' : '還差 ' + r0(l) + ' g'}</em></div>`; };
+    const macro = (k, n, eat, tar) => { const l = tar - eat; return `<div class="macro k${k}"><small>${n}</small><span class="num">${r0(eat)}<u> / ${tar} g</u></span><div class="bar"><i style="width:${tar > 0 ? Math.min(100, eat / tar * 100) : (eat > 0 ? 100 : 0)}%"></i></div><em class="${l < 0 ? 'over' : ''}">${l < 0 ? '超過 ' + r0(-l) + ' g' : '還差 ' + r0(l) + ' g'}</em></div>`; };
     const pk = t.p * 4, ck = t.c * 4, fk = t.f * 9;
     view.innerHTML = `<div class="rise">
       <div class="top"><div class="brand">食<i>光</i></div>
@@ -184,8 +184,10 @@
     const g = qGrams(); if (!(g > 0)) return toast('請輸入份量');
     const a = parseFloat(Q.amount), u = Q.unit < 0 ? null : Q.food.units[Q.unit];
     const label = u ? a + ' ' + u.n : r0(g) + ' 克'; const extra = u ? { unit: u.n, amount: a } : {};
-    if (Q.editId) removeEntry(Q.editId);
-    addEntry(Q.food, g, label, Q.meal, extra);
+    const old = Q.editId ? findEntry(Q.editId) : null;
+    if (old) removeEntry(Q.editId);
+    const ne = addEntry(Q.food, g, label, Q.meal, extra);
+    if (old && old.meal === Q.meal) { const list = day(S.date)[Q.meal]; list.splice(list.indexOf(ne), 1); list.splice(old.i, 0, ne); saveLog(); } // 改份量不要跳到最下面
     closeSheet(); toast(Q.editId ? '已更新' : '已加入' + mealName(Q.meal)); render();
   }
 
@@ -241,7 +243,9 @@
     text = (text || '').trim(); if (!text) return toast('還沒有內容');
     stopRec();
     const r = NL.parse(text);
-    const added = r.items.map(it => ({ e: addEntry(it.food, it.grams, it.label.replace('（預設份量）', ''), it.meal, {}), it }));
+    // 記住用的單位（盤／杯…），之後點進去改份量才會是「2 盤」而不是「2 克」
+    const unitOf = it => { const a = parseFloat(it.label); if (!(a > 0) || /克/.test(it.label)) return {}; const u = it.food.units.find(u => Math.abs(u.g * a - it.grams) < 0.6); return u ? { unit: u.n, amount: a } : {}; };
+    const added = r.items.map(it => ({ e: addEntry(it.food, it.grams, it.label.replace('（預設份量）', ''), it.meal, unitOf(it)), it }));
     S.lastBatch = added.map(a => a.e.id);
     drawResult(text, added, r.unknown); render();
   }
@@ -249,7 +253,7 @@
     const sum = added.reduce((a, x) => a + x.e.kcal, 0);
     const meals = [...new Set(added.map(a => mealName(a.it.meal)))].join('、');
     sheet(`<div class="result">${added.length ? `<div class="okmark"><svg viewBox="0 0 24 24"><path d="m5 12.500 4.500 4.500L19 7.500"/></svg></div>
-      <h2 style="text-align:center">已記錄 ${added.length} 項 · ${sum} 大卡</h2><div class="sub" style="text-align:center">記到${meals}　「${esc(text)}」</div>`
+      <h2 style="text-align:center">已記錄 ${added.length} 項 · ${sum} 大卡</h2><div class="sub" style="text-align:center">記到${S.date !== today() ? dateLabel(S.date) + ' 的' : ''}${meals}「${esc(text)}」</div>`
       : `<h2>沒有認出食物</h2><div class="sub">「${esc(text)}」</div>`}
       <div id="rlist">${added.map(a => `<div class="entry" data-rid="${a.e.id}"><span class="n"><b>${esc(a.e.name)}${a.it.est ? '<span class="badge">估算份量</span>' : ''}</b><small>${mealName(a.it.meal)} · ${esc(a.e.label)}${/克/.test(a.e.label) ? '' : ' · ' + r0(a.e.grams) + ' 克'}</small></span><span class="k">${a.e.kcal}<small>蛋 ${r0(a.e.p)} · 碳 ${r0(a.e.c)} · 脂 ${r0(a.e.f)}</small></span><button class="x" data-act="rdel" data-id="${a.e.id}" aria-label="移除">×</button></div>`).join('')}</div>
       ${unknown.length ? `<div class="unk">這幾個資料庫裡找不到，點一下可以搜尋或自己新增：<br>${unknown.map(u => `<button data-act="unk" data-q="${esc(u)}">${esc(u)}</button>`).join('')}</div>` : ''}
