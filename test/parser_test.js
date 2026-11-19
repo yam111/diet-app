@@ -74,4 +74,7 @@ eq('b3', NL.parse('50嵐四季春半糖', 12).items[0].sugar.n, '半糖');
 eq('b4', NL.search('麥當勞').map(f => f.name).includes('大麥克'), true);
 eq('b5', NL.search('好事多')[0].name.startsWith('好事多'), true);
 eq('b6', P('好事多熱狗堡'), '好事多熱狗堡:280:l');
+eq('b7 品牌延續', P('晚餐肯德基咔啦脆雞兩塊跟大薯'), '咔啦脆雞:396:d 肯德基薯條大:143:d');
+eq('b8 兩家', P('麥當勞大麥克和肯德基蛋撻'), '大麥克:215:l 原味蛋撻:52:l');
+eq('b9 肯德基可樂', P('肯德基咔啦雞腿堡跟可樂'), '咔啦雞腿堡:186:l 肯德基可樂:600:l');
 console.log(fail ? fail + ' FAILED' : 'ALL PASS', '| foods:', FOODS.length);

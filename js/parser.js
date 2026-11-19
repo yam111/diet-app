@@ -159,8 +159,17 @@
       while ((m = re.exec(cur))) { tokens.push({ type: 'meal', start: m.index, end: m.index + m[0].length, meal }); mask(m.index, m.index + m[0].length); }
     }
     // 2.2 品牌（麥當勞、全家…）：記下來挑那家的品項，字本身遮掉
-    const saidBrands = [];
-    for (const [w, b] of brands) { let j = t.join('').indexOf(w); while (j >= 0) { if (!saidBrands.includes(b)) saidBrands.push(b); mask(j, j + w.length); j = t.join('').indexOf(w, j + w.length); } }
+    //     用原句找（「肯德基咔啦脆雞」整個先被當食物名遮掉了，品牌還是要記得），後面的品項跟著前面講的那家
+    const saidBrands = [], brandAt = [];
+    for (const [w, b] of brands) {
+      let j = s.indexOf(w);
+      while (j >= 0) {
+        if (!brandAt.some(x => j >= x.pos && j < x.end)) { brandAt.push({ pos: j, end: j + w.length, b }); if (!saidBrands.includes(b)) saidBrands.push(b); }
+        if (t.slice(j, j + w.length).every(c => c !== M)) mask(j, j + w.length);
+        j = s.indexOf(w, j + w.length);
+      }
+    }
+    brandAt.sort((a, b) => a.pos - b.pos);
     // 2.3 飯量：「少飯」「飯多」「不要飯」
     let riceK = 1;
     for (const [re, k] of [[/飯少一點|少飯|飯少|飯減半|半飯/, 0.6], [/不要飯|飯不要|沒吃飯|飯沒吃|不吃飯/, 0], [/飯加量|加飯|飯多|大碗飯/, 1.4]]) {
@@ -196,7 +205,10 @@
       if (tk.type !== 'food') continue;
       const w = tk.said;
       // 那家專屬的品項優先（全家拿鐵 > 各家都有的拿鐵）
-      const c = foods.filter(f => (f.brand || []).some(b => saidBrands.includes(b)) && [f.name, ...f.alias].some(n => n.toLowerCase().includes(w)));
+      // 先找最近講的那家（「肯德基雞腿兩塊跟大薯」的大薯是肯德基的），沒有再找有講到的任何一家
+      const near = (brandAt.filter(x => x.pos <= tk.start).pop() || brandAt[0]).b;
+      const pick = bs => foods.filter(f => (f.brand || []).some(b => bs.includes(b)) && [f.name, ...f.alias].some(n => n.toLowerCase().includes(w)));
+      let c = pick([near]); if (!c.length) c = pick(saidBrands);
       if (c.length) tk.food = c.sort((a, b) => a.brand.length - b.brand.length || a.name.length - b.name.length)[0];
     }
 
