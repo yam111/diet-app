@@ -22,7 +22,8 @@
       if (k.length > maxLen) maxLen = k.length;
     };
     for (const f of list) for (const a of f.alias) put(a, f, false);
-    for (const f of list) put(f.name, f, true);
+    // 名稱一樣時清單前面的優先（我的食譜 > 自訂食物 > 內建資料庫）
+    for (const f of [...list].reverse()) put(f.name, f, true);
   }
 
   // ---------- 搜尋：打「蝦」就找得到「蝦仁蛋炒飯」 ----------
@@ -105,6 +106,7 @@
       const r = toGrams(food, n, unit[1]); return { g: r.g * SIZE[unit[0]], est: r.est };
     }
     if (unit && unit in GRAM_UNITS) return { g: n * GRAM_UNITS[unit], est: false };
+    if (food.anyUnit) return { g: n * food.units[0].g, est: false, unit: food.units[0].n }; // 我的食譜：一碗／一盤／一份都算一份
     const def = food.units[0];
     if (!unit) return { g: n * def.g, est: false, unit: def.n };
     let u = food.units.find(x => x.n === unit);
@@ -258,14 +260,15 @@
     const fallback = mealsT.length ? mealsT[0].meal : mealByHour(hour == null ? new Date().getHours() + new Date().getMinutes() / 60 : hour);
     // 6.5 套餐：「鯖魚便當」＝鯖魚＋便當；後面講的配菜歸給它
     const COMBOS = globalThis.COMBOS || {};
+    const comboOf = f => (f.recipe ? null : COMBOS[f.name]); // 我的食譜就算取名「雞腿便當」也照食譜拆
     const by = name => foods.find(f => f.name === name);
     for (let i = 0; i + 1 < foodsT.length; i++) {
       const a = foodsT[i], b = foodsT[i + 1];
-      if (b.food.name === '便當' && b.start === a.end && !COMBOS[a.food.name] && /蛋白質|便當菜|小吃/.test(a.food.cat)) { b.comboMain = a; a.absorbed = true; }
+      if (b.food.name === '便當' && b.start === a.end && !comboOf(a.food) && /蛋白質|便當菜|小吃/.test(a.food.cat)) { b.comboMain = a; a.absorbed = true; }
     }
     const SIDE_MARK = /配菜|小菜|菜色|附餐|菜有|菜是|附|配/;
     const BREAK = /還有|然後|另外|以及|再|又|加|喝|點心|飲料|早餐|午餐|晚餐|宵夜/;
-    const host = ft => !ft.absorbed && !ft.side && (COMBOS[ft.food.name] || ft.comboMain || /飯麵|連鎖餐廳|異國/.test(ft.food.cat));
+    const host = ft => !ft.absorbed && !ft.side && (comboOf(ft.food) || ft.comboMain || /飯麵|連鎖餐廳|異國/.test(ft.food.cat));
     for (let i = 0; i < foodsT.length; i++) {
       const h = foodsT[i]; if (!host(h)) continue;
       let prevEnd = h.end, marked = false;
@@ -277,7 +280,7 @@
         if (BREAK.test(g.replace(SIDE_MARK, ''))) break;
         const okCat = marked ? /蔬菜|便當菜|蛋豆|蛋白質|小吃|主食/.test(x.food.cat) : /蔬菜|便當菜/.test(x.food.cat) || (/蛋豆|蛋白質/.test(x.food.cat) && /蛋|豆/.test(x.food.name));
         if (!okCat) break;
-        if (!marked && !(COMBOS[h.food.name] || h.comboMain)) break; // 一般飯麵後面要講「配菜」才算
+        if (!marked && !(comboOf(h.food) || h.comboMain)) break; // 一般飯麵後面要講「配菜」才算
         x.side = h; prevEnd = x.end;
       }
     }
@@ -289,7 +292,7 @@
     const items = [];
     for (const ft of foodsT) {
       if (ft.absorbed || ft.side) continue;
-      const combo = ft.comboMain ? { rice: 200, main: [[ft.comboMain.food.name, 1]], sides: 3, mainTok: ft.comboMain } : COMBOS[ft.food.name];
+      const combo = ft.comboMain ? { rice: 200, main: [[ft.comboMain.food.name, 1]], sides: 3, mainTok: ft.comboMain } : comboOf(ft.food);
       if (!combo) { items.push(plainItem(ft)); for (const x of foodsT) if (x.side === ft) items.push(sideItem(x, ft.food.name, mealOf(ft))); continue; }
       const meal = mealOf(ft), q = qtyOf(ft);
       const k = q && !q.gram ? q.num : 1;

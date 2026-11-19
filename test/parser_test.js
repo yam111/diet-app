@@ -93,4 +93,19 @@ eq('i3 小匙', P('糖一茶匙鹽一小匙'), '砂糖:5:l 鹽:5:l');
 eq('i4 辛香料', P('香油一小匙 蔥一根 薑三片'), '香油:5:l 青蔥:15:l 薑:9:l');
 eq('i5 菇', P('金針菇一包鴻喜菇100克'), '金針菇:200:l 鴻喜菇:100:l');
 eq('i6 搜尋', NL.search('梅花').slice(0,3).map(f=>f.name).includes('豬梅花肉'), true);
+// 我的食譜（app 會把食譜當成一個食物放在最前面，記錄時再拆成食材）
+{
+  const R = { id: 'r_t1', name: '番茄炒蛋', alias: ['番茄蛋'], kcal: 120, p: 7, c: 5, f: 8, units: [{ n: '份', g: 250 }], cat: '我的食譜', brand: [], recipe: true, anyUnit: true };
+  const R2 = { id: 'r_t2', name: '雞腿便當', alias: [], kcal: 150, p: 10, c: 15, f: 5, units: [{ n: '份', g: 500 }], cat: '我的食譜', brand: [], recipe: true, anyUnit: true };
+  NL.setFoods([R, R2, ...FOODS]);
+  eq('r1 食譜優先', P('晚餐番茄炒蛋'), '番茄炒蛋:250:d');
+  eq('r2 兩份', P('兩份番茄炒蛋跟白飯一碗'), '番茄炒蛋:500:l 白飯:160:l');
+  eq('r3 一碗算一份', P('番茄蛋一碗'), '番茄炒蛋:250:l');
+  eq('r4 半份', P('番茄炒蛋半盤'), '番茄炒蛋:125:l');
+  eq('r5 克數', P('番茄炒蛋300克'), '番茄炒蛋:300:l');
+  eq('r6 同名不當套餐', P('雞腿便當'), '雞腿便當:500:l');
+  eq('r7 搜尋', NL.search('番茄').slice(0, 3).map(f => f.name).includes('番茄炒蛋'), true);
+  NL.setFoods(FOODS);
+  eq('r8 沒食譜照舊', P('雞腿便當'), '白飯:200:l 炸雞腿:170:l 綜合配菜:165:l');
+}
 console.log(fail ? fail + ' FAILED' : 'ALL PASS', '| foods:', FOODS.length);
