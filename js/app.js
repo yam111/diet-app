@@ -72,6 +72,7 @@
   fetch('data/brands.json').then(r => r.json()).then(a => {
     BEXT = a.map(([id, name, al, k, p, c, f, units, cat, brand, src]) => ({ id: 'b_' + id, name, alias: al ? al.split(',') : [], kcal: k, p, c, f, units: units.split(',').map(u => { const [n, g] = u.split(':'); return { n, g: +g }; }), cat, brand: brand ? brand.split(',') : [], st: src, ext: 1 }));
     for (const x of BEXT) EXTMAP.set(x.id, x);
+    NL.setBrandFoods(BEXT); // 語音／打字講了店名（全家、7-11…）也用這份
     if ($('#results')) renderResults();
   }).catch(() => { });
   rebuildFoods();

@@ -5,7 +5,8 @@
   let singleMap = new Map(); // 單字別名 → 食物
   let maxLen = 2;
   let brands = []; // [講法, 品牌名]，長的先對
-  let mine = [];   // 自己掃過／填過的品項、我的食譜：只講名字的一部分也認得
+  let mine = [];
+  let bfoods = [];  // 超商・連鎖店品項（brands.json）：講了店名才用   // 自己掃過／填過的品項、我的食譜：只講名字的一部分也認得
   const BRAND_SYN = { '7-11': ['7-11', '711', '小七', '統一超商', 'seven', '7eleven', '七十一', '七一一', '7 11'], 全家: ['全家', 'familymart'], 萊爾富: ['萊爾富', 'hilife'], OK: ['ok超商'],
     麥當勞: ['麥當勞', '麥當當', 'mcdonald'], 肯德基: ['肯德基', 'kfc'], 好事多: ['好事多', 'costco', '科斯特可'], 星巴克: ['星巴克', 'starbucks', '星爸爸'],
     '50嵐': ['50嵐', '五十嵐'], '85度C': ['85度c', '85度', '八五度'], 摩斯: ['摩斯', 'mos'], 清心福全: ['清心福全', '清心'], 'CoCo': ['coco', '都可'],
@@ -16,9 +17,7 @@
   function setFoods(list) {
     foods = list;
     nameMap = new Map(); singleMap = new Map(); maxLen = 2;
-    const bs = new Map();
-    for (const f of list) for (const b of f.brand || []) for (const w of BRAND_SYN[b] || [b]) bs.set(w.toLowerCase(), b);
-    brands = [...bs].sort((a, b) => b[0].length - a[0].length);
+    rebuildBrands();
     const put = (k, f, primary) => {
       k = k.toLowerCase();
       const m = k.length === 1 ? singleMap : nameMap;
@@ -30,6 +29,15 @@
     for (const f of [...list].reverse()) put(f.name, f, true);
     mine = list.filter(f => f.recipe || /^c_/.test(f.id || '')).map(f => ({ f, n: f.name.toLowerCase().replace(/\s+/g, '') }));
   }
+
+  function rebuildBrands() {
+    const bs = new Map();
+    for (const f of foods.concat(bfoods)) for (const b of f.brand || []) for (const w of BRAND_SYN[b] || [b]) bs.set(w.toLowerCase(), b);
+    brands = [...bs].sort((a, b) => b[0].length - a[0].length);
+  }
+  function setBrandFoods(list) { bfoods = list || []; rebuildBrands(); }
+  // 品名裡的空白、連字號、括號念的時候不會講，比對前拿掉（「極饗-蒜蓉蝦拌麵」）
+  const NC = new Map(); const namesOf = f => { let v = NC.get(f); if (!v) { v = [f.name, ...(f.alias || [])].map(x => x.toLowerCase().replace(/[\s\-‧・·_/()（）「」+＋]+/g, '')); NC.set(f, v); } return v; };
 
   // 句子第 i 個字開始，能不能一段一段對到同一個自己存的品項（「巧克力小泡芙」→ 義美小泡芙巧克力口味）
   // 每段至少兩個字、是品名裡的一段；回傳 { f, end, pieces }，挑蓋最長的（一樣長取清單前面＝最近存的）
@@ -172,11 +180,35 @@
     const tokens = [];
     const mask = (a, b) => { for (let i = a; i < b; i++) t[i] = M; };
 
+    // 0. 講了店名，緊接著的品名先在那家的品項裡找（「全家麻油雞飯糰」不拆成麻油雞＋飯糰）
+    if (bfoods.length) for (const [w, b] of brands) {
+      let j0 = s.indexOf(w);
+      for (; j0 >= 0; j0 = s.indexOf(w, j0 + w.length)) {
+        let j = j0 + w.length; if (s[j] === '的') j++;
+        if (t[j0] === M || t[j] === M || j >= n) continue;
+        const cands = bfoods.filter(f => f.brand.includes(b)); if (!cands.length) continue;
+        let hit = null;
+        for (let L = Math.min(40, n - j); L >= 2 && !hit; L--) {
+          const w2 = s.substr(j, L); if (t.slice(j, j + L).includes(M)) continue;
+          const ex = cands.find(f => namesOf(f).includes(w2));
+          const part = ex || cands.filter(f => namesOf(f).some(x => x.includes(w2))).sort((a, c) => a.name.length - c.name.length)[0];
+          if (part) hit = { L, f: part, ex: !!ex };
+        }
+        if (!hit) continue;
+        // 內建資料庫有那家的同一樣（或講得更完整的名字），就交給後面照原本的方式處理
+        let bl = 0, bf = null; for (let L = Math.min(maxLen, n - j); L >= 2; L--) { const f = nameMap.get(s.substr(j, L)); if (f) { bl = L; bf = f; break; } }
+        // 一樣長時：那家的庫裡有完全同名的才用（「全家飯糰」「全家地瓜」只講到一般名稱，照內建的一般值，不亂挑某個口味）
+        if (bl > hit.L || (bf && bl === hit.L && (!hit.ex || (bf.brand || []).includes(b)))) continue;
+        tokens.push({ type: 'food', start: j, end: j + hit.L, food: hit.f, said: s.substr(j, hit.L), byBrand: true }); mask(j, j + hit.L);
+      }
+    }
     // 1. 多字食物名：最長的先對
     for (let i = 0; i < n;) {
+      if (t[i] === M) { i++; continue; }
       let hit = null;
       for (let L = Math.min(maxLen, n - i); L >= 2; L--) {
         const f = nameMap.get(s.substr(i, L));
+        if (f && t.slice(i, i + L).includes(M)) continue;
         if (f) { hit = { type: 'food', start: i, end: i + L, food: f, said: s.substr(i, L) }; break; }
       }
       // 自己存的品項只講一部分：蓋得比內建名稱長就用自己的；一樣長時，拼兩段以上或四個字以上才用（「紅茶」「巧克力」照樣是內建的）
@@ -246,7 +278,7 @@
     }
     tokens.sort((a, b) => a.start - b.start);
     if (saidBrands.length) for (const tk of tokens) {
-      if (tk.type !== 'food') continue;
+      if (tk.type !== 'food' || tk.byBrand) continue;
       const w = tk.said;
       // 那家專屬的品項優先（全家拿鐵 > 各家都有的拿鐵）
       // 先找最近講的那家（「肯德基雞腿兩塊跟大薯」的大薯是肯德基的），沒有再找有講到的任何一家
@@ -254,7 +286,9 @@
       const pick = bs => foods.filter(f => (f.brand || []).some(b => bs.includes(b)) && [f.name, ...f.alias].some(n => n.toLowerCase().includes(w)));
       // 講的字剛好就是那家專屬品項的名字／別名（「subway照燒雞肉」），就用它，不要換成名字比較短的別項
       if (tk.food.brand.length === 1 && tk.food.brand[0] === near && [tk.food.name, ...tk.food.alias].some(x => x.toLowerCase() === w)) continue;
-      let c = pick([near]); if (!c.length) c = pick(saidBrands);
+      // 超商・連鎖店庫的品項要名字完全講對才換（不然「全家雞胸肉和白飯」的白飯會被換成全家某個便當）
+      const pickB = bs => bfoods.filter(f => f.brand.some(b => bs.includes(b)) && namesOf(f).includes(w));
+      let c = pick([near]); if (!c.length) c = pickB([near]); if (!c.length) c = pick(saidBrands); if (!c.length) c = pickB(saidBrands);
       if (c.length) tk.food = c.sort((a, b) => a.brand.length - b.brand.length || a.name.length - b.name.length)[0];
     }
 
@@ -420,5 +454,5 @@
     }
     return searchIn(q, list, limit);
   }
-  globalThis.NL = { setFoods, search, searchList, searchBrand, parse, cnNum, toGrams, mealByHour, sugarVariant };
+  globalThis.NL = { setFoods, setBrandFoods, search, searchList, searchBrand, parse, cnNum, toGrams, mealByHour, sugarVariant };
 })();

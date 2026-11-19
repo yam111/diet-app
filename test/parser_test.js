@@ -143,4 +143,17 @@ eq('m9', P('義美豆漿一瓶'), '無糖豆漿:400:l');
   eq('c8', P('巧克力一塊', 15).startsWith('巧克力:'), true);
   NL.setFoods(FOODS);
 }
+// 11/20 語音講店名也用超商・連鎖店庫
+{
+  const BU = require('../data/brands.json').map(([id, name, al, k, p, c, f, units, cat, brand, st]) => ({ id: 'b_' + id, name, alias: al ? al.split(',') : [], kcal: k, p, c, f, units: units.split(',').map(u => { const [n, g] = u.split(':'); return { n, g: +g }; }), cat, brand: brand ? brand.split(',') : [], st, ext: 1 }));
+  NL.setBrandFoods(BU);
+  const has = n => BU.some(f => f.name === n);
+  if (has('麻油雞飯糰')) { eq('d1', P('全家麻油雞飯糰', 8), '麻油雞飯糰:197:b'); eq('d2', P('午餐吃全家麻油雞飯糰跟茶葉蛋'), '麻油雞飯糰:197:l 茶葉蛋:55:l'); }
+  if (has('極饗-蒜蓉蝦拌麵')) eq('d3', P('小七極饗蒜蓉蝦拌麵一盒'), '極饗-蒜蓉蝦拌麵:380:l');
+  eq('d4', P('全家地瓜', 15).startsWith('超商地瓜'), true);
+  eq('d5', P('雞胸肉150克白飯一碗'), '雞胸肉:150:l 白飯:160:l');
+  eq('d6', P('全家拿鐵', 8), '全家拿鐵:480:b');
+  eq('d7', P('一杯拿鐵', 8), '拿鐵:360:b');
+  NL.setBrandFoods([]);
+}
 console.log(fail ? fail + ' FAILED' : 'ALL PASS', '| foods:', FOODS.length);
