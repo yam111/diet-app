@@ -5,6 +5,7 @@
   let singleMap = new Map(); // 單字別名 → 食物
   let maxLen = 2;
   let brands = []; // [講法, 品牌名]，長的先對
+  let mine = [];   // 自己掃過／填過的品項、我的食譜：只講名字的一部分也認得
   const BRAND_SYN = { '7-11': ['7-11', '711', '小七', '統一超商', 'seven', '7eleven', '七十一', '七一一', '7 11'], 全家: ['全家', 'familymart'], 萊爾富: ['萊爾富', 'hilife'], OK: ['ok超商'],
     麥當勞: ['麥當勞', '麥當當', 'mcdonald'], 肯德基: ['肯德基', 'kfc'], 好事多: ['好事多', 'costco', '科斯特可'], 星巴克: ['星巴克', 'starbucks', '星爸爸'],
     '50嵐': ['50嵐', '五十嵐'], '85度C': ['85度c', '85度', '八五度'], 摩斯: ['摩斯', 'mos'], 清心福全: ['清心福全', '清心'], 'CoCo': ['coco', '都可'],
@@ -27,6 +28,29 @@
     for (const f of list) for (const a of f.alias) put(a, f, false);
     // 名稱一樣時清單前面的優先（我的食譜 > 自訂食物 > 內建資料庫）
     for (const f of [...list].reverse()) put(f.name, f, true);
+    mine = list.filter(f => f.recipe || /^c_/.test(f.id || '')).map(f => ({ f, n: f.name.toLowerCase().replace(/\s+/g, '') }));
+  }
+
+  // 句子第 i 個字開始，能不能一段一段對到同一個自己存的品項（「巧克力小泡芙」→ 義美小泡芙巧克力口味）
+  // 每段至少兩個字、是品名裡的一段；回傳 { f, end, pieces }，挑蓋最長的（一樣長取清單前面＝最近存的）
+  const NUMCH = /[\d零〇一二兩三四五六七八九十百千半.]/;
+  function mineAt(s, i) {
+    let best = null;
+    for (const { f, n } of mine) {
+      let j = i, pieces = 0;
+      while (j < s.length) {
+        let L = 0;
+        for (let k = Math.min(n.length, s.length - j); k >= 2; k--) {
+          const w = s.substr(j, k);
+          if (NUMCH.test(w[0]) || STOP.includes(w)) continue;
+          if (n.includes(w)) { L = k; break; }
+        }
+        if (!L) break;
+        j += L; pieces++;
+      }
+      if (pieces && (!best || j > best.end)) best = { f, end: j, pieces };
+    }
+    return best;
   }
 
   // ---------- 搜尋：打「蝦」就找得到「蝦仁蛋炒飯」 ----------
@@ -154,6 +178,12 @@
       for (let L = Math.min(maxLen, n - i); L >= 2; L--) {
         const f = nameMap.get(s.substr(i, L));
         if (f) { hit = { type: 'food', start: i, end: i + L, food: f, said: s.substr(i, L) }; break; }
+      }
+      // 自己存的品項只講一部分：蓋得比內建名稱長就用自己的；一樣長時，拼兩段以上或四個字以上才用（「紅茶」「巧克力」照樣是內建的）
+      if (mine.length && !(hit && hit.food === nameMap.get(hit.said) && mine.some(m => m.f === hit.food))) {
+        const mm = mineAt(s, i), hl = hit ? hit.end - i : 0;
+        if (mm && (mm.end - i > hl || (mm.end - i === hl && (mm.pieces >= 2 || hl >= 4))))
+          hit = { type: 'food', start: i, end: mm.end, food: mm.f, said: s.slice(i, mm.end), mine: true };
       }
       if (hit) { tokens.push(hit); mask(hit.start, hit.end); i = hit.end; } else i++;
     }

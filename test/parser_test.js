@@ -129,4 +129,18 @@ eq('m9', P('義美豆漿一瓶'), '無糖豆漿:400:l');
   eq('b25 全家官方', BX.filter(f => f.brand.includes('全家') && f.st === '官網標示').length >= 200, true);
   eq('b26 全家雞胸', SB('全家雞胸').length >= 5, true);
 }
+// 11/20 自己掃過／填過的品項：只講一部分名字也對得到，內建常見名稱照舊
+{
+  const mk = (name) => ({ id: 'c_' + name, name, alias: [], kcal: 450, p: 6, c: 60, f: 20, units: [{ n: '份', g: 40 }], cat: '條碼', barcode: '1' });
+  NL.setFoods([mk('義美小泡芙巧克力口味'), mk('御茶園特上紅茶'), mk("Lay's 樂事原味洋芋片"), mk('雞胸肉沙拉')].concat(FOODS));
+  eq('c1', P('吃了小泡芙一包', 15), '義美小泡芙巧克力口味:40:s');
+  eq('c2', P('吃了巧克力小泡芙兩包', 15), '義美小泡芙巧克力口味:80:s');
+  eq('c3', P('喝了特上紅茶', 15), '御茶園特上紅茶:40:s');
+  eq('c4', P('喝了一杯紅茶', 15), '紅茶:500:s');
+  eq('c5', P('吃了樂事洋芋片', 15), "Lay's 樂事原味洋芋片:40:s");
+  eq('c6', P('雞胸肉150克白飯一碗'), '雞胸肉:150:l 白飯:160:l');
+  eq('c7', P('小泡芙一包和兩顆蛋', 15), '義美小泡芙巧克力口味:40:s 雞蛋:110:s');
+  eq('c8', P('巧克力一塊', 15).startsWith('巧克力:'), true);
+  NL.setFoods(FOODS);
+}
 console.log(fail ? fail + ' FAILED' : 'ALL PASS', '| foods:', FOODS.length);
