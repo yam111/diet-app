@@ -350,7 +350,8 @@
       ${f.recipe ? `<div class="rlist" id="qings"></div>` : ''}
       ${Q.ing != null ? `<div class="btnrow"><button class="btn ghost" style="flex:.6" data-act="rback">返回</button><button class="btn" data-act="qsave">${Q.ing >= 0 ? '更新食材' : '加到食譜'}</button></div>`
         : Q.editId ? `<div class="btnrow"><button class="btn danger" style="flex:.6" data-act="qdel">刪除</button><button class="btn" data-act="qsave">儲存</button></div>` : `<button class="btn" data-act="qsave">加入${mealName(Q.meal)}</button>`}
-      ${f.recipe ? `<button class="linkbtn" data-act="redit" data-rid="${esc(f.id)}">編輯這個食譜</button>` : ''}`);
+      ${f.recipe ? `<button class="linkbtn" data-act="redit" data-rid="${esc(f.id)}">編輯這個食譜</button>` : ''}
+      ${Q.ing == null && !Q.editId && S.custom.some(x => x.id === f.id) ? `<button class="linkbtn" data-act="cfedit" data-fid="${esc(f.id)}">數字不對？修改這個食物${f.barcode ? '（條碼 ' + esc(f.barcode) + '）' : ''}</button>` : ''}`);
     updQty();
   }
   function updQty() { const g = qGrams(), v = calc(Q.food, g); $('#qk').textContent = v.kcal; $('#qp').textContent = v.p; $('#qc').textContent = v.c; $('#qf').textContent = v.f; $('#qg').textContent = Q.unit < 0 ? '' : '約 ' + r0(g) + ' 克';
@@ -384,26 +385,41 @@
 
   // ---------- 自訂食物 ----------
   let NFBC = ''; // 正在新增的自訂食物的條碼（掃了查不到時）
-  function openNewFood(name = '', barcode = '') {
-    NFBC = barcode;
-    sheet(`${barcode ? '<button class="backbtn" data-act="scan">‹ 重新掃描</button>' : ''}<h2>新增自訂食物</h2><div class="sub">${barcode ? `條碼 ${esc(barcode)} 還沒有資料。照包裝背面的營養標示填一次，下次掃這個條碼就直接帶出來。` : '照包裝上的「每一份量」營養標示填就可以'}</div>
-      <div class="field"><label>名稱</label><input id="nf-n" type="text" style="font-family:var(--sans);font-size:16px;width:190px" value="${esc(name)}" placeholder="例如：公司樓下雞肉飯"></div>
-      <div class="field"><label>每份重量</label><input id="nf-g" type="number" inputmode="decimal" value="100"><span class="u">克</span></div>
-      <div class="field"><label>每份熱量</label><input id="nf-k" type="number" inputmode="decimal" placeholder="0"><span class="u">大卡</span></div>
-      <div class="field"><label>蛋白質</label><input id="nf-p" type="number" inputmode="decimal" placeholder="0"><span class="u">克</span></div>
-      <div class="field"><label>碳水化合物</label><input id="nf-c" type="number" inputmode="decimal" placeholder="0"><span class="u">克</span></div>
-      <div class="field"><label>脂肪</label><input id="nf-f" type="number" inputmode="decimal" placeholder="0"><span class="u">克</span></div>
+  let NFED = null; // 正在修改的自訂食物（掃到的開放資料不準、自己填錯了）
+  function openNewFood(name = '', barcode = '', edit = null) {
+    NFBC = barcode; NFED = edit;
+    const u = edit && edit.units[0], per = v => edit ? r1(v * u.g / 100) : '';
+    sheet(`${barcode && !edit ? '<button class="backbtn" data-act="scan">‹ 重新掃描</button>' : ''}<h2>${edit ? '修改自訂食物' : '新增自訂食物'}</h2><div class="sub">${edit ? '照包裝上的「每一份量」營養標示改。之後記的都用新的數字，已經記過的紀錄不會變。' : barcode ? `條碼 ${esc(barcode)} 還沒有資料。照包裝背面的營養標示填一次，下次掃這個條碼就直接帶出來。` : '照包裝上的「每一份量」營養標示填就可以'}</div>
+      <div class="field"><label>名稱</label><input id="nf-n" type="text" style="font-family:var(--sans);font-size:16px;width:190px" value="${esc(edit ? edit.name : name)}" placeholder="例如：公司樓下雞肉飯"></div>
+      <div class="field"><label>每份重量</label><input id="nf-g" type="number" inputmode="decimal" value="${edit ? u.g : 100}"><span class="u">克</span></div>
+      <div class="field"><label>每份熱量</label><input id="nf-k" type="number" inputmode="decimal" placeholder="0" value="${per(edit && edit.kcal)}"><span class="u">大卡</span></div>
+      <div class="field"><label>蛋白質</label><input id="nf-p" type="number" inputmode="decimal" placeholder="0" value="${per(edit && edit.p)}"><span class="u">克</span></div>
+      <div class="field"><label>碳水化合物</label><input id="nf-c" type="number" inputmode="decimal" placeholder="0" value="${per(edit && edit.c)}"><span class="u">克</span></div>
+      <div class="field"><label>脂肪</label><input id="nf-f" type="number" inputmode="decimal" placeholder="0" value="${per(edit && edit.f)}"><span class="u">克</span></div>
       <p class="note">熱量沒填的話，會用三大營養素自動算（蛋白質、碳水每克 4 大卡，脂肪每克 9 大卡）。</p>
-      <button class="btn" data-act="nfsave">儲存並加入紀錄</button>`);
+      ${edit ? `<div class="btnrow"><button class="btn danger" style="flex:.6" data-act="cfdel">刪除</button><button class="btn" data-act="nfsave">儲存</button></div>` : '<button class="btn" data-act="nfsave">儲存並加入紀錄</button>'}`);
   }
   function saveNewFood() {
     const v = id => parseFloat($(id).value) || 0; const name = $('#nf-n').value.trim(); const g = v('#nf-g');
     if (!name) return toast('請輸入名稱'); if (!(g > 0)) return toast('請輸入每份重量');
     const p = v('#nf-p'), c = v('#nf-c'), f = v('#nf-f'); const k = v('#nf-k') || p * 4 + c * 4 + f * 9;
     if (!(k > 0)) return toast('請輸入熱量或營養素');
-    const x = 100 / g; const food = { id: 'c_' + uid(), name, alias: [], kcal: r1(k * x), p: r1(p * x), c: r1(c * x), f: r1(f * x), units: [{ n: '份', g }], cat: '自訂', ...(NFBC ? { barcode: NFBC } : {}) };
-    S.custom = S.custom.filter(o => o.name !== name && !(NFBC && o.barcode === NFBC)); S.custom.unshift(food); save('SG_CUSTOM', S.custom); rebuildFoods(); NFBC = '';
+    const x = 100 / g, ed = NFED; let bc = ed ? ed.barcode || '' : NFBC;
+    // 同名的舊自訂食物會被換掉；它有條碼的話留下來，不然下次掃那個條碼就找不到了
+    const same = S.custom.find(o => o.name === name && o !== ed && o.barcode); if (!bc && same) bc = same.barcode;
+    const food = { id: ed ? ed.id : 'c_' + uid(), name, alias: [], kcal: r1(k * x), p: r1(p * x), c: r1(c * x), f: r1(f * x), units: [{ n: ed && ed.units[0].n || '份', g }], cat: ed ? ed.cat : '自訂', ...(bc ? { barcode: bc } : {}) };
+    const at = ed ? S.custom.findIndex(o => o.id === ed.id) : -1;
+    S.custom = S.custom.filter(o => o.id !== food.id && o.name !== name && !(bc && o.barcode === bc));
+    if (at >= 0) S.custom.splice(Math.min(at, S.custom.length), 0, food); else S.custom.unshift(food);
+    save('SG_CUSTOM', S.custom); rebuildFoods(); NFBC = ''; NFED = null;
+    if (ed) toast('已更新「' + name + '」');
     openQty(food, { fromSearch: true });
+  }
+  function deleteCustom(id) {
+    const f = S.custom.find(o => o.id === id); if (!f || !confirm('刪除「' + f.name + '」？已經記過的紀錄不會變。')) return;
+    S.custom = S.custom.filter(o => o.id !== id); S.recent = S.recent.filter(x => x !== id);
+    save('SG_CUSTOM', S.custom); save('SG_RECENT', S.recent); rebuildFoods(); NFED = null;
+    toast('已刪除「' + f.name + '」'); backToSearch();
   }
 
   // ---------- 掃條碼：先找自己存過的，再查 Open Food Facts 開放資料庫，都沒有就照包裝標示填一次 ----------
@@ -737,6 +753,8 @@
       case 'scan': openScan(); break;
       case 'bcgo': lookupBarcode($('#bc-in').value); break;
       case 'nfsave': saveNewFood(); break;
+      case 'cfedit': { const f = S.custom.find(o => o.id === el.dataset.fid); if (f) openNewFood('', '', f); break; }
+      case 'cfdel': if (NFED) deleteCustom(NFED.id); break;
       case 'rnew': openRecipe(null); break;
       case 'redit': openRecipe(el.dataset.rid); break;
       case 'rfrom': { const d = S.batchDate || S.date; const items = (S.lastBatch || []).map(id => findEntry(id, d)).filter(Boolean).map(({ e }) => { const f = foodById(e.fid), x = 100 / e.grams;
