@@ -208,10 +208,20 @@
       // 先找最近講的那家（「肯德基雞腿兩塊跟大薯」的大薯是肯德基的），沒有再找有講到的任何一家
       const near = (brandAt.filter(x => x.pos <= tk.start).pop() || brandAt[0]).b;
       const pick = bs => foods.filter(f => (f.brand || []).some(b => bs.includes(b)) && [f.name, ...f.alias].some(n => n.toLowerCase().includes(w)));
+      // 講的字剛好就是那家專屬品項的名字／別名（「subway照燒雞肉」），就用它，不要換成名字比較短的別項
+      if (tk.food.brand.length === 1 && tk.food.brand[0] === near && [tk.food.name, ...tk.food.alias].some(x => x.toLowerCase() === w)) continue;
       let c = pick([near]); if (!c.length) c = pick(saidBrands);
       if (c.length) tk.food = c.sort((a, b) => a.brand.length - b.brand.length || a.name.length - b.name.length)[0];
     }
 
+    // 品牌字本身也是某個食物的別名（subway＝潛艇堡），後面緊接著講了那家的品項，就只算後面那個
+    {
+      const bw = new Set(brands.map(x => x[0]));
+      for (let i = tokens.length - 2; i >= 0; i--) {
+        const a = tokens[i], b = tokens[i + 1];
+        if (a.type === 'food' && b.type === 'food' && bw.has(a.said) && b.start === a.end) tokens.splice(i, 1);
+      }
+    }
     // 5. 數量配給哪個食物
     const foodsT = tokens.filter(x => x.type === 'food');
     const qtys = tokens.filter(x => x.type === 'qty');
