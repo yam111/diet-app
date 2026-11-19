@@ -358,5 +358,7 @@
 
   function fmt(n) { return (Math.round(n * 100) / 100).toString(); }
 
-  globalThis.NL = { setFoods, search, parse, cnNum, toGrams, mealByHour, sugarVariant };
+  // 另一份清單（例如衛福部完整資料庫）用同樣的規則搜尋
+  function searchList(q, list, limit = 40) { q = (q || '').trim().toLowerCase().replace(/\s+/g, ''); return q ? searchIn(q, list, limit) : []; }
+  globalThis.NL = { setFoods, search, searchList, parse, cnNum, toGrams, mealByHour, sugarVariant };
 })();

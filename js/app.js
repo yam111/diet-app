@@ -58,7 +58,14 @@
     const x = 100 / t.g;
     return { id: r.id, name: r.name, alias: r.alias || [], kcal: r1(t.kcal * x), p: r1(t.p * x), c: r1(t.c * x), f: r1(t.f * x), units: [{ n: '份', g: r1(t.g / (r.yields || 1)) }], cat: '我的食譜', brand: [], recipe: true, anyUnit: true };
   }
-  const foodById = id => { const [b, sg] = String(id).split('@'); const f = ALL.find(x => x.id === b); return f && sg ? NL.sugarVariant(f, sg) : f; };
+  const foodById = id => { const [b, sg] = String(id).split('@'); const f = ALL.find(x => x.id === b) || EXTMAP.get(b); return f && sg ? NL.sugarVariant(f, sg) : f; };
+  // 衛福部食品營養成分資料庫完整版（約 1800 種，開啟後背景載入，只用在搜尋）
+  let EXT = [], EXTMAP = new Map();
+  fetch('data/tfda.json').then(r => r.json()).then(a => {
+    EXT = a.map(([id, name, al, k, p, c, f, cat, st]) => ({ id: 't_' + id, name, alias: al ? al.split(',') : [], kcal: k, p, c, f, units: [{ n: '份', g: 100 }], cat, st, ext: 1 }));
+    EXTMAP = new Map(EXT.map(x => [x.id, x]));
+    if ($('#results')) renderResults();
+  }).catch(() => { });
   rebuildFoods();
 
   // ---------- 計算 ----------
@@ -263,12 +270,12 @@
   function backToSearch() { sheet(searchHTML(), null, 'srch'); renderResults(); }
   function searchHTML() {
     return `<div class="shead"><div class="sttl"><h2>加到${S.date === today() ? '' : shortDate(S.date) + '的'}<span id="smn">${mealName(S.meal)}</span></h2><button class="xbtn" data-act="close" aria-label="關閉">×</button></div>
-      <div class="searchbox"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.500"/><path d="m16 16 4.500 4.500"/></svg><input id="q" type="search" placeholder="搜尋食物…" value="${esc(S.q)}" autocomplete="off" enterkeyhint="search"><button data-act="clearq" ${S.q ? '' : 'hidden'}>×</button></div>
+      <div class="searchbox"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.500"/><path d="m16 16 4.500 4.500"/></svg><input id="q" type="search" placeholder="搜尋食物…" value="${esc(S.q)}" autocomplete="off" enterkeyhint="search"><button data-act="clearq" ${S.q ? '' : 'hidden'}>×</button><button class="bcbtn" data-act="scan" aria-label="掃條碼"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M8 8v8M11 8v8M14 8v8M17 8v8"/></svg></button></div>
       <div class="seg sm" id="smeals">${MEALS.map(m => `<button data-act="smeal" data-meal="${m.k}" class="${S.meal === m.k ? 'on' : ''}">${m.k === 'snack' ? '小食' : m.n}</button>`).join('')}</div></div>
       <div id="results" class="sbody"></div>`;
   }
   function hl(name, q) { if (!q) return esc(name); const set = new Set([...q.toLowerCase()]); return [...name].map(ch => set.has(ch.toLowerCase()) ? '<mark>' + esc(ch) + '</mark>' : esc(ch)).join(''); }
-  function foodRow(f, q) { const u = f.units[0], k = r0(f.kcal * u.g / 100); return `<button class="food" data-act="pick" data-fid="${esc(f.id)}"><span class="n"><b>${hl(f.name, q)}</b><small>1 ${esc(u.n)}（${u.g} 克）· ${esc(f.cat || '自訂')}${f.brand && f.brand.length ? ' · ' + esc(f.brand.slice(0, 3).join('、')) : ''}</small></span><span class="k">${k}<small>kcal</small></span><span class="plus">+</span></button>`; }
+  function foodRow(f, q) { const u = f.units[0], k = r0(f.kcal * u.g / 100); return `<button class="food" data-act="pick" data-fid="${esc(f.id)}"><span class="n"><b>${hl(f.name, q)}</b><small>1 ${esc(u.n)}（${u.g} 克）· ${esc(f.cat || '自訂')}${f.st ? '・' + esc(f.st) : ''}${f.brand && f.brand.length ? ' · ' + esc(f.brand.slice(0, 3).join('、')) : ''}</small></span><span class="k">${k}<small>kcal</small></span><span class="plus">+</span></button>`; }
   function recentRow(f) {
     const e = lastEntry(f.id), vf = e && foodById(e.fid); if (!vf) return foodRow(f);
     const amt = e.unit ? e.amount + ' ' + e.unit + '（' + r0(e.grams) + ' 克）' : r0(e.grams) + ' 克';
@@ -278,9 +285,10 @@
     const box = $('#results'); if (!box) return; const q = S.q.trim();
     let html = '';
     if (q) {
-      const res = NL.search(q, 50);
-      html = res.length ? `<div class="sec">${res.length} 筆結果 · 記到${mealName(S.meal)}</div>` + res.map(f => f.recipe ? recipeRow(S.recipes.find(x => x.id === f.id)) : foodRow(f, q)).join('') : `<div class="nores">找不到「${esc(q)}」</div>`;
-      html += `<button class="btn ghost" style="margin-top:18px" data-act="newfood">＋ 新增自訂食物${res.length ? '' : '「' + esc(q) + '」'}</button>`;
+      const res = NL.search(q, 50), ext = NL.searchList(q, EXT, 60);
+      html = res.length ? `<div class="sec">${res.length} 筆結果 · 記到${mealName(S.meal)}</div>` + res.map(f => f.recipe ? recipeRow(S.recipes.find(x => x.id === f.id)) : foodRow(f, q)).join('') : ext.length ? '' : `<div class="nores">找不到「${esc(q)}」</div>`;
+      if (ext.length) html += `<div class="sec">衛福部食品營養成分資料庫 · ${ext.length >= 60 ? '60+' : ext.length} 筆<em>每 100 克</em></div>` + ext.map(f => foodRow(f, q)).join('');
+      html += `<button class="btn ghost" style="margin-top:18px" data-act="newfood">＋ 新增自訂食物${res.length || ext.length ? '' : '「' + esc(q) + '」'}</button>`;
     } else {
       html = `<div class="chips">${CATS.map(c => `<button class="chip ${S.cat === c ? 'on' : ''}" data-act="cat" data-cat="${c}">${c}</button>`).join('')}</div>`;
       if (S.cat) html += ALL.filter(f => f.cat === S.cat).map(f => foodRow(f)).join('');
@@ -351,8 +359,10 @@
   }
 
   // ---------- 自訂食物 ----------
-  function openNewFood(name = '') {
-    sheet(`<h2>新增自訂食物</h2><div class="sub">照包裝上的「每一份量」營養標示填就可以</div>
+  let NFBC = ''; // 正在新增的自訂食物的條碼（掃了查不到時）
+  function openNewFood(name = '', barcode = '') {
+    NFBC = barcode;
+    sheet(`${barcode ? '<button class="backbtn" data-act="scan">‹ 重新掃描</button>' : ''}<h2>新增自訂食物</h2><div class="sub">${barcode ? `條碼 ${esc(barcode)} 還沒有資料。照包裝背面的營養標示填一次，下次掃這個條碼就直接帶出來。` : '照包裝上的「每一份量」營養標示填就可以'}</div>
       <div class="field"><label>名稱</label><input id="nf-n" type="text" style="font-family:var(--sans);font-size:16px;width:190px" value="${esc(name)}" placeholder="例如：公司樓下雞肉飯"></div>
       <div class="field"><label>每份重量</label><input id="nf-g" type="number" inputmode="decimal" value="100"><span class="u">克</span></div>
       <div class="field"><label>每份熱量</label><input id="nf-k" type="number" inputmode="decimal" placeholder="0"><span class="u">大卡</span></div>
@@ -367,9 +377,64 @@
     if (!name) return toast('請輸入名稱'); if (!(g > 0)) return toast('請輸入每份重量');
     const p = v('#nf-p'), c = v('#nf-c'), f = v('#nf-f'); const k = v('#nf-k') || p * 4 + c * 4 + f * 9;
     if (!(k > 0)) return toast('請輸入熱量或營養素');
-    const x = 100 / g; const food = { id: 'c_' + uid(), name, alias: [], kcal: r1(k * x), p: r1(p * x), c: r1(c * x), f: r1(f * x), units: [{ n: '份', g }], cat: '自訂' };
-    S.custom = S.custom.filter(o => o.name !== name); S.custom.unshift(food); save('SG_CUSTOM', S.custom); rebuildFoods();
+    const x = 100 / g; const food = { id: 'c_' + uid(), name, alias: [], kcal: r1(k * x), p: r1(p * x), c: r1(c * x), f: r1(f * x), units: [{ n: '份', g }], cat: '自訂', ...(NFBC ? { barcode: NFBC } : {}) };
+    S.custom = S.custom.filter(o => o.name !== name && !(NFBC && o.barcode === NFBC)); S.custom.unshift(food); save('SG_CUSTOM', S.custom); rebuildFoods(); NFBC = '';
     openQty(food, { fromSearch: true });
+  }
+
+  // ---------- 掃條碼：先找自己存過的，再查 Open Food Facts 開放資料庫，都沒有就照包裝標示填一次 ----------
+  let scanStop = null;
+  const loadScript = src => new Promise((ok, no) => { if (document.querySelector(`script[src="${src}"]`)) return ok(); const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = no; document.head.appendChild(s); });
+  function openScan() {
+    sheet(`<button class="backbtn" data-act="sback">‹ 回搜尋</button><h2>掃包裝條碼</h2><div class="sub">把條碼對準框框，會自動辨識</div>
+      <div class="scanbox"><video id="scv" playsinline muted autoplay></video><i></i></div>
+      <p class="note" id="scmsg">開啟相機中…</p>
+      <div class="field"><label>或輸入條碼數字</label><input id="bc-in" type="text" inputmode="numeric" autocomplete="off" style="width:160px" placeholder="例如 4710…"></div>
+      <button class="btn" data-act="bcgo">查詢</button>`, stopScan, 'scan');
+    startScan();
+  }
+  async function startScan() {
+    const v = $('#scv'), msg = t => { const m = $('#scmsg'); if (m) m.textContent = t; }; let done = false;
+    const hit = code => { if (done) return; done = true; if (navigator.vibrate) navigator.vibrate(60); stopScan(); lookupBarcode(code); };
+    const FMT = ['ean_13', 'ean_8', 'upc_a', 'upc_e'];
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw 0;
+      let native = false; try { native = 'BarcodeDetector' in window && (await BarcodeDetector.getSupportedFormats()).includes('ean_13'); } catch (e) { }
+      if (native) {
+        const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+        if (!$('#scv')) return st.getTracks().forEach(t => t.stop());
+        let alive = true; scanStop = () => { alive = false; st.getTracks().forEach(t => t.stop()); };
+        v.srcObject = st; await v.play(); msg('對準條碼…');
+        const bd = new BarcodeDetector({ formats: FMT });
+        const loop = async () => { if (!alive) return; try { const r = await bd.detect(v); if (r[0]) return hit(r[0].rawValue); } catch (e) { } setTimeout(loop, 180); }; loop();
+      } else {
+        await loadScript('js/vendor/zxing.min.js'); if (!$('#scv')) return;
+        const hints = new Map(); hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8, ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E]);
+        const rd = new ZXing.BrowserMultiFormatReader(hints); scanStop = () => rd.reset();
+        await rd.decodeFromConstraints({ video: { facingMode: 'environment' }, audio: false }, v, res => { if (res) hit(res.getText()); });
+        if ($('#scv')) msg('對準條碼…');
+      }
+    } catch (e) { stopScan(); msg('沒辦法開相機（要允許「相機」權限），也可以直接輸入條碼數字。'); }
+  }
+  function stopScan() { if (scanStop) { const f = scanStop; scanStop = null; try { f(); } catch (e) { } } }
+  async function lookupBarcode(code) {
+    code = String(code || '').replace(/\D/g, ''); if (code.length < 8) return toast('條碼是 8～13 位數字');
+    const mine = S.custom.find(f => f.barcode === code); if (mine) return openQty(mine, { fromSearch: true });
+    const m = $('#scmsg'); if (m) m.textContent = '查詢條碼 ' + code + '…';
+    try {
+      const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,product_name_zh,brands,nutriments,serving_quantity`);
+      const j = await r.json(), p = j.product || {}, n = p.nutriments || {};
+      const k = n['energy-kcal_100g'] != null ? +n['energy-kcal_100g'] : n.energy_100g != null ? n.energy_100g / 4.184 : null;
+      if (j.status === 1 && k != null && k >= 0) {
+        let name = (p.product_name_zh || p.product_name || '').trim() || '條碼 ' + code; const br = (p.brands || '').split(',')[0].trim();
+        if (br && !name.toLowerCase().includes(br.toLowerCase())) name = br + ' ' + name;
+        const sq = parseFloat(p.serving_quantity);
+        const food = { id: 'c_' + uid(), name, alias: [], kcal: r1(k), p: r1(+n.proteins_100g || 0), c: r1(+n.carbohydrates_100g || 0), f: r1(+n.fat_100g || 0), units: [{ n: '份', g: sq > 0 && sq < 2000 ? r1(sq) : 100 }], cat: '條碼', barcode: code };
+        S.custom = S.custom.filter(o => o.barcode !== code); S.custom.unshift(food); save('SG_CUSTOM', S.custom); rebuildFoods();
+        toast('找到了（Open Food Facts 開放資料，可以點進去對一下包裝）'); return openQty(food, { fromSearch: true });
+      }
+    } catch (e) { if (!navigator.onLine) toast('沒有網路，先照包裝標示填一次'); }
+    openNewFood('', code);
   }
 
   // ---------- 我的食譜 ----------
@@ -645,6 +710,8 @@
         if (row) { row.classList.add('gone'); setTimeout(done, 220); } else done(); break; }
       case 'qdel': removeEntry(Q.editId); closeSheet(); toast('已刪除'); render(); break;
       case 'newfood': openNewFood(S.q.trim()); break;
+      case 'scan': openScan(); break;
+      case 'bcgo': lookupBarcode($('#bc-in').value); break;
       case 'nfsave': saveNewFood(); break;
       case 'rnew': openRecipe(null); break;
       case 'redit': openRecipe(el.dataset.rid); break;
@@ -719,6 +786,7 @@
     else if (ev.target.id === 'qamt') { Q.amount = ev.target.value; saveQty(); }
     else if (ev.target.id === 'q') ev.target.blur();
     else if (ev.target.id === 'wt') saveWeight(ev.target.value);
+    else if (ev.target.id === 'bc-in') lookupBarcode(ev.target.value);
   });
 
   function exportData() {
