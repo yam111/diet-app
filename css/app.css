@@ -302,3 +302,28 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;heigh
 #toast button{background:#17130a;color:#efe9dc;border-radius:99px;padding:6px 13px;font-size:12.5px;font-weight:500}
 #toast.act span{min-width:0;overflow:hidden;text-overflow:ellipsis}
 #toast button{flex:none}
+/* 搜尋視窗 */
+.sheet.srch{height:92%;display:flex;flex-direction:column;overflow:hidden;padding-bottom:0}
+.sheet.srch .shead{flex:none}
+.sheet.srch .sttl{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.sheet.srch .sttl h2{margin:0}
+.sheet.srch .sttl h2 span{color:var(--gold2)}
+.xbtn{width:34px;height:34px;border-radius:50%;background:var(--s2);color:var(--muted);font-size:20px;display:grid;place-items:center;flex:none}
+.sheet.srch .searchbox{margin-bottom:10px}
+.sheet.srch .seg{margin-bottom:4px}
+.sbody{flex:1;overflow-y:auto;margin:0 -20px;padding:0 20px calc(var(--safe-b) + 24px);scrollbar-width:none;overscroll-behavior:contain}
+.sbody::-webkit-scrollbar{display:none}
+.sbody .chips{margin:8px -20px 0;padding:0 20px}
+.backbtn{color:var(--gold);font-size:13.5px;padding:2px 0 10px;letter-spacing:.04em}
+/* 左滑刪除 */
+.sw{position:relative;overflow:hidden;border-top:1px solid var(--line)}
+.sw .entry{position:relative;z-index:1;border-top:0;background:#161d19;touch-action:pan-y;will-change:transform}
+.sw .swdel{position:absolute;right:0;top:0;bottom:0;width:84px;background:#b5524a;color:#fff;font-size:14px;font-weight:500;letter-spacing:.08em;display:flex;align-items:center;justify-content:center;transition:width .18s}
+.sw.far .swdel{width:100%;justify-content:flex-end;padding-right:28px}
+.sw:not(.open) .swdel{visibility:hidden}
+.sw.gone{animation:swgone .22s ease forwards}
+@keyframes swgone{to{opacity:0;max-height:0;padding:0}}
+.sw{max-height:90px}
+.flash{animation:flash 1.6s ease}
+@keyframes flash{0%,40%{box-shadow:0 0 0 1px var(--gold) inset;background:rgba(216,182,118,.10)}100%{box-shadow:none}}
+input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-search-decoration{-webkit-appearance:none;display:none}

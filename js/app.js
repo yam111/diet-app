@@ -201,7 +201,7 @@
     document.body.classList.toggle('onboard', !S.profile);
     if (!S.profile) return renderOnboard();
     document.querySelectorAll('#tabbar [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === S.tab));
-    ({ today: renderToday, search: renderSearch, trend: renderTrend, me: renderMe })[S.tab]();
+    ({ today: renderToday, trend: renderTrend, me: renderMe })[S.tab]();
   }
   function dateLabel(k) {
     const t = today(); const d = new Date(k + 'T12:00:00');
@@ -235,8 +235,8 @@
         <div class="row"><span>目標</span>${stack(T.p * 4, T.c * 4, T.f * 9, 'ghost')}</div>
         <div class="legend"><b class="kp">蛋白質</b><b class="kc">碳水</b><b class="kf">脂肪</b></div></div>
       ${MEALS.map(m => { const list = d[m.k] || []; const sum = list.reduce((a, e) => a + e.kcal, 0);
-        return `<div class="card meal"><header><span class="ic"><svg viewBox="0 0 24 24">${m.ic}</svg></span><b>${m.n}</b>${sum ? `<span class="num">${sum}<u>kcal</u></span>` : ''}<button class="add" data-act="addto" data-meal="${m.k}" aria-label="新增到${m.n}">+</button></header>
-        ${list.length ? list.map(entryRow).join('') : sameRow(m)}</div>`; }).join('')}
+        return `<div class="card meal" data-meal="${m.k}"><header><span class="ic"><svg viewBox="0 0 24 24">${m.ic}</svg></span><b>${m.n}</b>${sum ? `<span class="num">${sum}<u>kcal</u></span>` : ''}<button class="add" data-act="addto" data-meal="${m.k}" aria-label="新增到${m.n}">+</button></header>
+        ${list.length ? list.map(swipeRow).join('') : sameRow(m)}</div>`; }).join('')}
       <p class="note" style="text-align:center">按下方金色麥克風，說一句「午餐吃了一盤蝦仁蛋炒飯」就會自動記錄</p>
     </div>`;
     requestAnimationFrame(() => requestAnimationFrame(() => { const fg = $('.ring .fg'); if (fg) fg.style.strokeDashoffset = fg.dataset.to; }));
@@ -247,20 +247,25 @@
     return `<button class="same" data-act="copymeal" data-meal="${m.k}"><span class="ic2"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.5"/><path d="M20 4v4.500h-4.500"/><path d="M20 12a8 8 0 0 1-13.7 5.600L4 15.500"/><path d="M4 20v-4.500h4.500"/></svg></span>
       <span class="n"><b>同${pm.k === addDays(S.date, -1) ? '昨天' : ' ' + shortDate(pm.k) + ' '}的${m.n}</b><small>${esc(names.slice(0, 3).join('、'))}${names.length > 3 ? ' 等 ' + names.length + ' 樣' : ''}</small></span><span class="k">${kc}<small>kcal</small></span></button>`;
   }
+  function swipeRow(e) { return `<div class="sw" data-id="${e.id}"><button class="swdel" data-act="swdel" data-id="${e.id}" tabindex="-1">刪除</button>${entryRow(e)}</div>`; }
   function entryRow(e) {
     return `<button class="entry" data-act="edit" data-id="${e.id}"><span class="n"><b>${esc(e.name)}</b><small>${esc(e.label)}${/克/.test(e.label) ? '' : ' · ' + r0(e.grams) + ' 克'}</small></span><span class="k">${e.kcal}<small>蛋 ${r0(e.p)} · 碳 ${r0(e.c)} · 脂 ${r0(e.f)}</small></span></button>`;
   }
 
   // ---------- 搜尋 ----------
   const CATS = ['主食', '飯麵', '早餐', '蛋白質', '蛋豆', '便當菜', '蔬菜', '水果', '小吃', '速食', '超商', '連鎖餐廳', '好事多', '異國', '飲料', '手搖飲', '咖啡', '湯', '點心', '油脂堅果', '調味料'];
-  function renderSearch() {
-    if (!S.meal) S.meal = NL.mealByHour(new Date().getHours() + new Date().getMinutes() / 60);
-    view.innerHTML = `<div>
-      <h1 class="page">找食物</h1><p class="sub">打一個字就好，例如「蝦」會找到蝦仁蛋炒飯</p>
+  // 搜尋是從下方跳出的視窗（按各餐的＋或下方「搜尋」），不是另一頁
+  function openSearch(meal, q = '') {
+    S.meal = meal || S.meal || NL.mealByHour(new Date().getHours() + new Date().getMinutes() / 60); S.q = q; S.cat = '';
+    sheet(searchHTML(), null, 'srch'); renderResults();
+    if (!q) setTimeout(() => { const i = $('#q'); if (i) i.focus(); }, 380);
+  }
+  function backToSearch() { sheet(searchHTML(), null, 'srch'); renderResults(); }
+  function searchHTML() {
+    return `<div class="shead"><div class="sttl"><h2>加到${S.date === today() ? '' : shortDate(S.date) + '的'}<span id="smn">${mealName(S.meal)}</span></h2><button class="xbtn" data-act="close" aria-label="關閉">×</button></div>
       <div class="searchbox"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.500"/><path d="m16 16 4.500 4.500"/></svg><input id="q" type="search" placeholder="搜尋食物…" value="${esc(S.q)}" autocomplete="off" enterkeyhint="search"><button data-act="clearq" ${S.q ? '' : 'hidden'}>×</button></div>
-      <div class="seg sm" style="margin-bottom:12px">${MEALS.map(m => `<button data-act="smeal" data-meal="${m.k}" class="${S.meal === m.k ? 'on' : ''}">${m.k === 'snack' ? '小食' : m.n}</button>`).join('')}</div>
-      <div id="results"></div></div>`;
-    renderResults();
+      <div class="seg sm" id="smeals">${MEALS.map(m => `<button data-act="smeal" data-meal="${m.k}" class="${S.meal === m.k ? 'on' : ''}">${m.k === 'snack' ? '小食' : m.n}</button>`).join('')}</div></div>
+      <div id="results" class="sbody"></div>`;
   }
   function hl(name, q) { if (!q) return esc(name); const set = new Set([...q.toLowerCase()]); return [...name].map(ch => set.has(ch.toLowerCase()) ? '<mark>' + esc(ch) + '</mark>' : esc(ch)).join(''); }
   function foodRow(f, q) { const u = f.units[0], k = r0(f.kcal * u.g / 100); return `<button class="food" data-act="pick" data-fid="${esc(f.id)}"><span class="n"><b>${hl(f.name, q)}</b><small>1 ${esc(u.n)}（${u.g} 克）· ${esc(f.cat || '自訂')}${f.brand && f.brand.length ? ' · ' + esc(f.brand.slice(0, 3).join('、')) : ''}</small></span><span class="k">${k}<small>kcal</small></span><span class="plus">+</span></button>`; }
@@ -294,7 +299,7 @@
   // ---------- 份量面板（新增／修改共用） ----------
   let Q = null;
   function openQty(food, opt = {}) {
-    Q = { food, meal: opt.meal || S.meal || NL.mealByHour(new Date().getHours()), editId: opt.editId || null, unit: 0, amount: 1, ing: opt.ing == null ? null : opt.ing };
+    Q = { food, meal: opt.meal || S.meal || NL.mealByHour(new Date().getHours()), editId: opt.editId || null, fromSearch: !!opt.fromSearch, unit: 0, amount: 1, ing: opt.ing == null ? null : opt.ing };
     if (opt.entry) {
       const e = opt.entry; const ui = food.units.findIndex(u => e.unit === u.n);
       if (e.unit && ui >= 0) { Q.unit = ui; Q.amount = e.amount; } else { Q.unit = -1; Q.amount = r0(e.grams); }
@@ -304,7 +309,7 @@
   function qGrams() { const a = parseFloat(Q.amount) || 0; return Q.unit < 0 ? a : a * Q.food.units[Q.unit].g; }
   function drawQty() {
     const f = Q.food;
-    sheet(`<h2>${esc(f.name)}</h2><div class="sub">每 100 克 ${f.kcal} 大卡 · 蛋白質 ${f.p}・碳水 ${f.c}・脂肪 ${f.f}</div>
+    sheet(`${Q.fromSearch ? '<button class="backbtn" data-act="sback">‹ 回搜尋</button>' : ''}<h2>${esc(f.name)}</h2><div class="sub">每 100 克 ${f.kcal} 大卡 · 蛋白質 ${f.p}・碳水 ${f.c}・脂肪 ${f.f}</div>
       <div class="chips" style="margin:0 -20px 6px;padding:0 20px">${f.units.map((u, i) => `<button class="chip ${Q.unit === i ? 'on' : ''}" data-act="qunit" data-i="${i}">${esc(u.n)}</button>`).join('')}<button class="chip ${Q.unit < 0 ? 'on' : ''}" data-act="qunit" data-i="-1">克</button></div>
       <div class="qbig"><input id="qamt" type="number" inputmode="decimal" step="any" value="${Q.amount}"><span>${Q.unit < 0 ? '克' : esc(f.units[Q.unit].n)}</span></div>
       <div class="qg" id="qg"></div>
@@ -327,13 +332,22 @@
       return drawRecipe();
     }
     if (Q.food.recipe) { const r = S.recipes.find(x => x.id === Q.food.id);
-      if (r) { logRecipe(r, g / Q.food.units[0].g, Q.meal); closeSheet(); toast('已拆成 ' + r.items.length + ' 樣加入' + mealName(Q.meal)); render(); return; } }
+      if (r) { logRecipe(r, g / Q.food.units[0].g, Q.meal); closeSheet(); toast('已拆成 ' + r.items.length + ' 樣加入' + mealName(Q.meal)); goMeal(Q.meal); return; } }
     const label = u ? a + ' ' + u.n : r0(g) + ' 克'; const extra = u ? { unit: u.n, amount: a } : {};
     const old = Q.editId ? findEntry(Q.editId) : null;
     if (old) removeEntry(Q.editId);
     const ne = addEntry(Q.food, g, label, Q.meal, extra);
     if (old && old.meal === Q.meal) { const list = day(S.date)[Q.meal]; list.splice(list.indexOf(ne), 1); list.splice(old.i, 0, ne); saveLog(); } // 改份量不要跳到最下面
-    closeSheet(); toast(Q.editId ? '已更新' : '已加入' + mealName(Q.meal)); render();
+    closeSheet(); toast(Q.editId ? '已更新' : '已加入' + mealName(Q.meal));
+    if (Q.editId && old && old.meal === Q.meal) render(); else goMeal(Q.meal, ne.id);
+  }
+  // 回今日頁、捲到那一餐、剛加的那筆亮一下
+  function goMeal(meal, eid) {
+    S.tab = 'today'; S.pendingMeal = null; render();
+    const card = $(`.card.meal[data-meal="${meal}"]`); if (!card) return;
+    const top = card.getBoundingClientRect().top - view.getBoundingClientRect().top + view.scrollTop - 70;
+    view.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    const row = eid ? card.querySelector(`.sw[data-id="${eid}"]`) : card; if (row) { row.classList.add('flash'); setTimeout(() => row.classList.remove('flash'), 1600); }
   }
 
   // ---------- 自訂食物 ----------
@@ -355,7 +369,7 @@
     if (!(k > 0)) return toast('請輸入熱量或營養素');
     const x = 100 / g; const food = { id: 'c_' + uid(), name, alias: [], kcal: r1(k * x), p: r1(p * x), c: r1(c * x), f: r1(f * x), units: [{ n: '份', g }], cat: '自訂' };
     S.custom = S.custom.filter(o => o.name !== name); S.custom.unshift(food); save('SG_CUSTOM', S.custom); rebuildFoods();
-    openQty(food);
+    openQty(food, { fromSearch: true });
   }
 
   // ---------- 我的食譜 ----------
@@ -374,6 +388,7 @@
     const r = id && S.recipes.find(x => x.id === id);
     RE = r ? { id: r.id, name: r.name, alias: (r.alias || []).join('、'), yields: r.yields || 1, items: r.items.map(x => ({ ...x })), q: '' }
       : { id: null, name: '', alias: '', yields: 1, items: preset || [], q: '' };
+    RE.fs = !!$('.sheet.srch');
     drawRecipe();
   }
   function drawRecipe() {
@@ -432,8 +447,8 @@
     const i = S.recipes.findIndex(x => x.id === r.id);
     if (i >= 0) S.recipes[i] = r; else S.recipes.unshift(r);
     S.recipes = S.recipes.filter(x => x.id === r.id || x.name !== name); // 同名的舊食譜換掉
-    save('SG_RECIPES', S.recipes); rebuildFoods(); RE = null;
-    closeSheet(); toast(i >= 0 ? '已更新食譜' : '存好了，下次說「' + name + '」就好'); render();
+    const fs = RE.fs; save('SG_RECIPES', S.recipes); rebuildFoods(); RE = null;
+    toast(i >= 0 ? '已更新食譜' : '存好了，下次說「' + name + '」就好'); if (fs) backToSearch(); else { closeSheet(); render(); }
   }
   function removeRecipe() {
     if (!RE || !RE.id) return;
@@ -586,13 +601,13 @@
 
   // ---------- 面板／提示 ----------
   let onClose = null;
-  function sheet(html, closeFn) {
+  function sheet(html, closeFn, cls = '') {
     if (onClose) { const f = onClose; onClose = null; f(); }
     onClose = closeFn || null;
     const had = !!$('#sheets .sheet');
-    $('#sheets').innerHTML = `<div class="scrim" data-act="scrim" ${had ? 'style="animation:none"' : ''}><div class="sheet" ${had ? 'style="animation:none"' : ''}><div class="grab"></div>${html}</div></div>`;
+    $('#sheets').innerHTML = `<div class="scrim" data-act="scrim" ${had ? 'style="animation:none"' : ''}><div class="sheet ${cls}" ${had ? 'style="animation:none"' : ''}><div class="grab"></div>${html}</div></div>`;
   }
-  function closeSheet() { if (onClose) { const f = onClose; onClose = null; f(); } $('#sheets').innerHTML = ''; }
+  function closeSheet() { if (onClose) { const f = onClose; onClose = null; f(); } $('#sheets').innerHTML = ''; if (S.pendingMeal && S.profile) goMeal(S.pendingMeal); }
   // undo：給了就在提示旁邊放「復原」，4 秒內可以按
   let tt, tUndo = null; function toast(msg, undo) {
     const t = $('#toast'); tUndo = undo || null; t.textContent = ''; const sp = document.createElement('span'); sp.textContent = msg; t.appendChild(sp); t.classList.toggle('act', !!undo);
@@ -601,7 +616,7 @@
 
   // ---------- 事件 ----------
   document.addEventListener('click', ev => {
-    const tab = ev.target.closest('[data-tab]'); if (tab) { S.tab = tab.dataset.tab; if (S.tab === 'search') { S.meal = null; } view.scrollTop = 0; return render(); }
+    const tab = ev.target.closest('[data-tab]'); if (tab) { if (tab.dataset.tab === 'search') { if (S.tab !== 'today') { S.tab = 'today'; render(); } return openSearch(null); } S.tab = tab.dataset.tab; view.scrollTop = 0; return render(); }
     const set = ev.target.closest('[data-set]'); if (set) return setProfile(set.dataset.set, set.dataset.v);
     const el = ev.target.closest('[data-act]'); if (!el) return;
     const a = el.dataset.act;
@@ -609,14 +624,15 @@
     switch (a) {
       case 'day': S.date = addDays(S.date, +el.dataset.n); if (S.date > today()) S.date = today(); render(); break;
       case 'goday': S.date = el.dataset.k; S.tab = 'today'; view.scrollTop = 0; render(); break;
-      case 'addto': S.tab = 'search'; S.meal = el.dataset.meal; S.q = ''; view.scrollTop = 0; render(); setTimeout(() => { const q = $('#q'); if (q) q.focus(); }, 60); break;
-      case 'smeal': S.meal = el.dataset.meal; renderSearch(); break;
+      case 'addto': openSearch(el.dataset.meal); break;
+      case 'smeal': S.meal = el.dataset.meal; document.querySelectorAll('#smeals button').forEach(b => b.classList.toggle('on', b.dataset.meal === S.meal)); $('#smn').textContent = mealName(S.meal); if (S.q) renderResults(); break;
+      case 'sback': backToSearch(); break;
       case 'cat': S.cat = S.cat === el.dataset.cat ? '' : el.dataset.cat; renderResults(); break;
-      case 'clearq': S.q = ''; renderSearch(); $('#q').focus(); break;
+      case 'clearq': S.q = ''; $('#q').value = ''; el.hidden = true; renderResults(); $('#q').focus(); break;
       case 'pick': { let f = foodById(el.dataset.fid); if (!f) break; const le = el.dataset.last && lastEntry(f.id), lf = le && foodById(le.fid);
-        if (lf) openQty(lf, { meal: S.meal, entry: le }); else openQty(f, { meal: S.meal }); break; }
+        if (lf) openQty(lf, { meal: S.meal, entry: le, fromSearch: true }); else openQty(f, { meal: S.meal, fromSearch: true }); break; }
       case 'quick': { const m = S.meal || NL.mealByHour(new Date().getHours()), ne = quickLog(el.dataset.fid, m); if (!ne) break;
-        renderResults(); const fl = $(`#results [data-fid="${CSS.escape(el.dataset.fid)}"].plus`); if (fl) fl.classList.add('done');
+        S.pendingMeal = m; renderResults(); const fl = $(`#results [data-fid="${CSS.escape(el.dataset.fid)}"].plus`); if (fl) fl.classList.add('done');
         const d = S.date; toast(`${ne.name} ${ne.label} 已記到${mealName(m)}`, () => { removeEntry(ne.id, d); renderResults(); }); break; }
       case 'copymeal': { const d = S.date, r = copyMeal(el.dataset.meal, d); if (!r) break; render();
         toast(`已記上${shortDate(r.pm.k) === '昨天' ? '昨天' : ' ' + shortDate(r.pm.k) + ' '}的${mealName(el.dataset.meal)} ${r.added.length} 樣`, () => { r.added.forEach(e => removeEntry(e.id, d)); render(); }); break; }
@@ -624,6 +640,9 @@
       case 'qunit': { const i = +el.dataset.i; if (i === Q.unit) break; const g = qGrams(); Q.unit = i; Q.amount = i < 0 ? r0(g) || 100 : 1; drawQty(); break; }
       case 'qmeal': Q.meal = el.dataset.meal; Q.amount = $('#qamt').value; drawQty(); break;
       case 'qsave': Q.amount = $('#qamt').value; saveQty(); break;
+      case 'swdel': { const d = S.date, f = findEntry(el.dataset.id, d); if (!f) break; const row = el.closest('.sw');
+        const done = () => { removeEntry(f.e.id, d); render(); toast(`已刪除 ${f.e.name}`, () => { day(d)[f.meal].splice(f.i, 0, f.e); saveLog(); render(); }); };
+        if (row) { row.classList.add('gone'); setTimeout(done, 220); } else done(); break; }
       case 'qdel': removeEntry(Q.editId); closeSheet(); toast('已刪除'); render(); break;
       case 'newfood': openNewFood(S.q.trim()); break;
       case 'nfsave': saveNewFood(); break;
@@ -642,7 +661,7 @@
       case 'mic': if (!SR) break; if (rec) { try { rec.stop(); } catch (e) { } } else startRec(); break;
       case 'vsend': submitText($('#vtext').value); break;
       case 'rdel': removeEntry(el.dataset.id, S.batchDate || S.date); el.closest('.entry').remove(); render(); if (!$('#rlist .entry')) closeSheet(); break;
-      case 'unk': closeSheet(); S.tab = 'search'; S.q = el.dataset.q; S.meal = null; render(); break;
+      case 'unk': closeSheet(); S.tab = 'today'; render(); openSearch(null, el.dataset.q); break;
       case 'close': closeSheet(); break;
       case 'start': S.profile = draft; save('SG_PROFILE', S.profile); S.tab = 'today'; view.scrollTop = 0; render(); toast('設定完成，開始記錄吧'); break;
       case 'wsave': saveWeight($('#wt').value); break;
@@ -651,6 +670,30 @@
       case 'import': $('#imp').click(); break;
     }
   });
+  // ---------- 左滑刪除 ----------
+  const SWW = 84; let SW = null, swOpen = null, swEat = 0;
+  function swSet(row, x, anim) { const en = row.querySelector('.entry'); en.style.transition = anim ? 'transform .22s cubic-bezier(.2,.9,.2,1)' : 'none'; en.style.transform = x ? `translateX(${x}px)` : '';
+    row.classList.toggle('open', x < 0); }
+  function swClose() { if (swOpen) { swSet(swOpen, 0, true); swOpen = null; } }
+  view.addEventListener('pointerdown', ev => {
+    const row = ev.target.closest('.sw'); if (swOpen && swOpen !== row) { swClose(); swEat = Date.now(); }
+    if (!row || ev.target.closest('.swdel') || (ev.pointerType === 'mouse' && ev.button)) return;
+    SW = { row, x0: ev.clientX, y0: ev.clientY, base: row === swOpen ? -SWW : 0, dx: 0, on: false };
+  });
+  view.addEventListener('pointermove', ev => {
+    if (!SW) return; const dx = ev.clientX - SW.x0, dy = ev.clientY - SW.y0;
+    if (!SW.on) { if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { SW = null; return; } if (Math.abs(dx) < 8) return; SW.on = true; }
+    const w = SW.row.offsetWidth; SW.dx = Math.min(0, Math.max(-w, SW.base + dx)); swSet(SW.row, SW.dx, false);
+    SW.row.classList.toggle('far', SW.dx < -w * 0.55);
+  });
+  const swEnd = () => {
+    if (!SW) return; const { row, on, dx } = SW; SW = null; if (!on) return; swEat = Date.now(); row.classList.remove('far');
+    if (dx < -row.offsetWidth * 0.55) { swSet(row, -row.offsetWidth, true); swOpen = null; setTimeout(() => row.querySelector('.swdel').click(), 160); }
+    else if (dx < -SWW / 2) { swSet(row, -SWW, true); swOpen = row; } else { swSet(row, 0, true); if (swOpen === row) swOpen = null; }
+  };
+  view.addEventListener('pointerup', swEnd); view.addEventListener('pointercancel', swEnd);
+  // 剛滑完的那一下不要當成「點進去編輯」
+  view.addEventListener('click', ev => { if (Date.now() - swEat < 450) { swEat = 0; if (!ev.target.closest('.swdel')) { ev.stopPropagation(); ev.preventDefault(); } } }, true);
   document.addEventListener('input', ev => {
     const t = ev.target;
     if (t.id === 're-q') { RE.q = t.value; reResults(); }
