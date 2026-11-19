@@ -289,6 +289,11 @@
       // 超商・連鎖店庫的品項要名字完全講對才換（不然「全家雞胸肉和白飯」的白飯會被換成全家某個便當）
       const pickB = bs => bfoods.filter(f => f.brand.some(b => bs.includes(b)) && namesOf(f).includes(w));
       let c = pick([near]); if (!c.length) c = pickB([near]); if (!c.length) c = pick(saidBrands); if (!c.length) c = pickB(saidBrands);
+      // 講的是一般名稱（「全家飯糰」「全家雞胸肉」），那家的品項名字又不只是「店名＋這個詞」，就不要亂挑一個口味
+      if (c.length && tk.food.name.toLowerCase() === w && !(tk.food.brand || []).length) {
+        const bare = f => { let x = f.name.toLowerCase(); for (const [bw] of brands) x = x.split(bw).join(''); x = x.replace(/^超商/, ''); return x.replace(/[\s\-‧・·_/()（）]+/g, ''); };
+        c = c.filter(f => { const x = bare(f); return x === w || x.replace(/^[大中小]|[大中小]杯?$/g, '') === w || namesOf(f).includes(w); });
+      }
       if (c.length) tk.food = c.sort((a, b) => a.brand.length - b.brand.length || a.name.length - b.name.length)[0];
     }
 
