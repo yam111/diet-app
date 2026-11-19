@@ -7,7 +7,10 @@
   let brands = []; // [講法, 品牌名]，長的先對
   const BRAND_SYN = { '7-11': ['7-11', '711', '小七', '統一超商', 'seven', '7eleven', '七十一', '七一一', '7 11'], 全家: ['全家', 'familymart'], 萊爾富: ['萊爾富', 'hilife'], OK: ['ok超商'],
     麥當勞: ['麥當勞', '麥當當', 'mcdonald'], 肯德基: ['肯德基', 'kfc'], 好事多: ['好事多', 'costco', '科斯特可'], 星巴克: ['星巴克', 'starbucks', '星爸爸'],
-    '50嵐': ['50嵐', '五十嵐'], '85度C': ['85度c', '85度', '八五度'], 摩斯: ['摩斯', 'mos'], 清心福全: ['清心福全', '清心'], 'CoCo': ['coco', '都可'] };
+    '50嵐': ['50嵐', '五十嵐'], '85度C': ['85度c', '85度', '八五度'], 摩斯: ['摩斯', 'mos'], 清心福全: ['清心福全', '清心'], 'CoCo': ['coco', '都可'],
+    再睡5分鐘: ['再睡5分鐘', '再睡五分鐘'], 日出茶太: ['日出茶太', '茶太', 'chatime'], 天仁茗茶: ['天仁茗茶', '天仁', '喫茶趣'], 八曜和茶: ['八曜和茶', '八曜'], 麻古: ['麻古茶坊', '麻古'],
+    路易莎: ['路易莎', 'louisa'], 伯朗咖啡: ['伯朗咖啡', '伯朗'], 早安美芝城: ['早安美芝城', '美芝城'], 三商巧福: ['三商巧福', '巧福'], 繼光香香雞: ['繼光香香雞', '繼光'],
+    'Mister Donut': ['misterdonut', 'mrdonut', 'mr.donut', '米斯特'], '21世紀': ['21世紀風味館', '21世紀'], 必勝客: ['必勝客', 'pizzahut'], 達美樂: ['達美樂', 'dominos'], 漢堡王: ['漢堡王', 'burgerking'] };
 
   function setFoods(list) {
     foods = list;
@@ -360,5 +363,23 @@
 
   // 另一份清單（例如衛福部完整資料庫）用同樣的規則搜尋
   function searchList(q, list, limit = 40) { q = (q || '').trim().toLowerCase().replace(/\s+/g, ''); return q ? searchIn(q, list, limit) : []; }
-  globalThis.NL = { setFoods, search, searchList, parse, cnNum, toGrams, mealByHour, sugarVariant };
+  // 超商・連鎖店清單：開頭講品牌（「全家雞胸」）就只在那家裡找
+  let bCache = null, bWords = [];
+  function searchBrand(q, list, limit = 40) {
+    q = (q || '').trim().toLowerCase().replace(/\s+/g, ''); if (!q) return [];
+    if (bCache !== list) {
+      bCache = list; const m = new Map();
+      for (const f of list) for (const b of f.brand || []) for (const w of BRAND_SYN[b] || [b]) m.set(w.toLowerCase(), b);
+      for (const [b, ws] of Object.entries(BRAND_SYN)) for (const w of ws) m.set(w.toLowerCase(), b);
+      bWords = [...m].sort((a, b) => b[0].length - a[0].length);
+    }
+    for (const [w, b] of bWords) {
+      if (!q.startsWith(w)) continue;
+      const rest = q.slice(w.length).replace(/^的/, ''), mine = list.filter(f => (f.brand || []).includes(b));
+      if (!mine.length) break;
+      return rest ? searchIn(rest, mine, limit) : mine.slice(0, limit);
+    }
+    return searchIn(q, list, limit);
+  }
+  globalThis.NL = { setFoods, search, searchList, searchBrand, parse, cnNum, toGrams, mealByHour, sugarVariant };
 })();

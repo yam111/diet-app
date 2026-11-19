@@ -64,6 +64,14 @@
   fetch('data/tfda.json').then(r => r.json()).then(a => {
     EXT = a.map(([id, name, al, k, p, c, f, cat, st]) => ({ id: 't_' + id, name, alias: al ? al.split(',') : [], kcal: k, p, c, f, units: [{ n: '份', g: 100 }], cat, st, ext: 1 }));
     EXTMAP = new Map(EXT.map(x => [x.id, x]));
+    for (const x of BEXT) EXTMAP.set(x.id, x);
+    if ($('#results')) renderResults();
+  }).catch(() => { });
+  // 超商・連鎖店品項（全家官網營養標示等，約上千項，開啟後背景載入，只用在搜尋）
+  let BEXT = [];
+  fetch('data/brands.json').then(r => r.json()).then(a => {
+    BEXT = a.map(([id, name, al, k, p, c, f, units, cat, brand, src]) => ({ id: 'b_' + id, name, alias: al ? al.split(',') : [], kcal: k, p, c, f, units: units.split(',').map(u => { const [n, g] = u.split(':'); return { n, g: +g }; }), cat, brand: brand ? brand.split(',') : [], st: src, ext: 1 }));
+    for (const x of BEXT) EXTMAP.set(x.id, x);
     if ($('#results')) renderResults();
   }).catch(() => { });
   rebuildFoods();
@@ -285,8 +293,9 @@
     const box = $('#results'); if (!box) return; const q = S.q.trim();
     let html = '';
     if (q) {
-      const res = NL.search(q, 50), ext = NL.searchList(q, EXT, 60);
-      html = res.length ? `<div class="sec">${res.length} 筆結果 · 記到${mealName(S.meal)}</div>` + res.map(f => f.recipe ? recipeRow(S.recipes.find(x => x.id === f.id)) : foodRow(f, q)).join('') : ext.length ? '' : `<div class="nores">找不到「${esc(q)}」</div>`;
+      const res = NL.search(q, 50), ext = NL.searchList(q, EXT, 60), seen = new Set(res.map(f => f.name)), br = NL.searchBrand(q, BEXT, 60).filter(f => !seen.has(f.name));
+      html = res.length ? `<div class="sec">${res.length} 筆結果 · 記到${mealName(S.meal)}</div>` + res.map(f => f.recipe ? recipeRow(S.recipes.find(x => x.id === f.id)) : foodRow(f, q)).join('') : ext.length || br.length ? '' : `<div class="nores">找不到「${esc(q)}」</div>`;
+      if (br.length) html += `<div class="sec">超商・連鎖店 · ${br.length >= 60 ? '60+' : br.length} 筆<em>每筆標明官網標示或估算</em></div>` + br.map(f => foodRow(f, q)).join('');
       if (ext.length) html += `<div class="sec">衛福部食品營養成分資料庫 · ${ext.length >= 60 ? '60+' : ext.length} 筆<em>每 100 克</em></div>` + ext.map(f => foodRow(f, q)).join('');
       html += `<button class="btn ghost" style="margin-top:18px" data-act="newfood">＋ 新增自訂食物${res.length || ext.length ? '' : '「' + esc(q) + '」'}</button>`;
     } else {

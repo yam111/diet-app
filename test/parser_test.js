@@ -108,4 +108,15 @@ eq('i6 搜尋', NL.search('梅花').slice(0,3).map(f=>f.name).includes('豬梅�
   NL.setFoods(FOODS);
   eq('r8 沒食譜照舊', P('雞腿便當'), '白飯:200:l 炸雞腿:170:l 綜合配菜:165:l');
 }
+// 超商・連鎖店清單（data/brands.json，只用在搜尋）
+{ const BX = require('../data/brands.json').map(([id, name, al, k, p, c, f, units, cat, brand, st]) => ({ id: 'b_' + id, name, alias: al ? al.split(',') : [], kcal: k, p, c, f, cat, brand: brand.split(','), st }));
+  const SB = q => NL.searchBrand(q, BX, 60).map(f => f.name);
+  eq('b20 品牌全部', SB('鼎泰豐').length >= 6 && SB('鼎泰豐').every(n => n.startsWith('鼎泰豐') || n === '紅油抄手' || n === '芋泥小籠包'), true);
+  eq('b21 品牌叫法', SB('茶太珍奶')[0], '日出茶太珍珠奶茶');
+  eq('b22 品牌＋品項', SB('壽司郎茶碗蒸')[0], '壽司郎茶碗蒸');
+  eq('b23 不講品牌', SB('波堤').includes('蜜糖波堤'), true);
+  eq('b24 數值合理', BX.every(f => f.kcal > 0 && f.kcal < 950 && Math.abs(4 * f.p + 4 * f.c + 9 * f.f - f.kcal) / f.kcal < 0.35), true);
+  eq('b25 全家官方', BX.filter(f => f.brand.includes('全家') && f.st === '官網標示').length >= 30, true); // 全家抓完後調回 200
+  eq('b26 全家飯糰', SB('全家飯糰').length >= 5, true); // 全家抓完後改回 全家雞胸 >= 5
+}
 console.log(fail ? fail + ' FAILED' : 'ALL PASS', '| foods:', FOODS.length);
