@@ -212,11 +212,16 @@
 
   // ---------- 畫面 ----------
   const view = $('#view');
+  // 同一頁、同一天重畫（刪除、改份量、復原…）不重跑進場動畫、圓環直接停在新位置、捲動位置不動
+  let lastView = '', quiet = false, ringAt = null;
   function render() {
+    const key = S.tab + '|' + S.date + '|' + !!S.profile; quiet = key === lastView; lastView = key;
+    const y = view.scrollTop;
     document.body.classList.toggle('onboard', !S.profile);
     if (!S.profile) return renderOnboard();
     document.querySelectorAll('#tabbar [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === S.tab));
     ({ today: renderToday, trend: renderTrend, me: renderMe })[S.tab]();
+    if (quiet) { const r = view.querySelector('.rise'); if (r) r.classList.remove('rise'); view.scrollTop = y; }
   }
   function dateLabel(k) {
     const t = today(); const d = new Date(k + 'T12:00:00');
@@ -250,11 +255,21 @@
         <div class="row"><span>目標</span>${stack(T.p * 4, T.c * 4, T.f * 9, 'ghost')}</div>
         <div class="legend"><b class="kp">蛋白質</b><b class="kc">碳水</b><b class="kf">脂肪</b></div></div>
       ${MEALS.map(m => { const list = d[m.k] || []; const sum = list.reduce((a, e) => a + e.kcal, 0);
-        return `<div class="card meal" data-meal="${m.k}"><header><span class="ic"><svg viewBox="0 0 24 24">${m.ic}</svg></span><b>${m.n}</b>${sum ? `<span class="num">${sum}<u>kcal</u></span>` : ''}<button class="add" data-act="addto" data-meal="${m.k}" aria-label="新增到${m.n}">+</button></header>
+        return `<div class="card meal" data-meal="${m.k}"><header><span class="ic"><svg viewBox="0 0 24 24">${m.ic}</svg></span><b>${m.n}</b>${sum ? `<span class="num msum">${sum}<u>kcal</u>${T.kcal > 0 ? `<em>佔全天 ${Math.round(sum / T.kcal * 100)}%</em>` : ''}</span>` : ''}<button class="add" data-act="addto" data-meal="${m.k}" aria-label="新增到${m.n}">+</button></header>
+        ${list.length ? mealSum(list, sum, T) : ''}
         ${list.length ? list.map(swipeRow).join('') : sameRow(m)}</div>`; }).join('')}
       <p class="note" style="text-align:center">按下方金色麥克風，說一句「午餐吃了一盤蝦仁蛋炒飯」就會自動記錄</p>
     </div>`;
-    requestAnimationFrame(() => requestAnimationFrame(() => { const fg = $('.ring .fg'); if (fg) fg.style.strokeDashoffset = fg.dataset.to; }));
+    // 圓環：重畫時從剛剛的位置滑到新位置，不從零重轉
+    const fg = $('.ring .fg');
+    if (fg && quiet && ringAt != null) { fg.style.transition = 'none'; fg.style.strokeDashoffset = ringAt; fg.getBoundingClientRect(); fg.style.transition = ''; }
+    if (fg) { ringAt = fg.dataset.to; requestAnimationFrame(() => requestAnimationFrame(() => { fg.style.strokeDashoffset = fg.dataset.to; })); }
+  }
+  // 這一餐吃了多少：三大營養素克數＋佔全天目標幾成，一眼知道下一餐怎麼分
+  function mealSum(list, kcal, T) {
+    const g = k => list.reduce((a, e) => a + (e[k] || 0), 0);
+    const it = (k, n, v) => `<span class="k${k}"><i></i>${n}<b class="num">${r0(v)}</b>g</span>`;
+    return `<div class="mealsum">${it('p', '蛋白質', g('p'))}${it('c', '碳水', g('c'))}${it('f', '脂肪', g('f'))}</div>`;
   }
   function sameRow(m) {
     const pm = prevMeal(m.k); if (!pm) return '<div class="empty">還沒有紀錄</div>';
@@ -747,27 +762,42 @@
     }
   });
   // ---------- 左滑刪除 ----------
+  // 品名留在原位、右邊長出刪除鈕（不是整列推出去）；手指偏橫就算左滑，並鎖住上下捲動
   const SWW = 84; let SW = null, swOpen = null, swEat = 0;
-  function swSet(row, x, anim) { const en = row.querySelector('.entry'); en.style.transition = anim ? 'transform .22s cubic-bezier(.2,.9,.2,1)' : 'none'; en.style.transform = x ? `translateX(${x}px)` : '';
-    row.classList.toggle('open', x < 0); }
+  function swSet(row, x, anim) { // x：往左露出的寬度（0～列寬）
+    const en = row.querySelector('.entry'), del = row.querySelector('.swdel'), w = row.offsetWidth;
+    const tr = anim ? 'width .22s cubic-bezier(.2,.9,.2,1)' : 'none';
+    en.style.transition = tr; del.style.transition = tr;
+    en.style.width = x ? `${Math.max(0, w - x)}px` : ''; del.style.width = x ? `${Math.max(0, x - 8)}px` : '';
+    row.classList.toggle('open', x > 0); }
   function swClose() { if (swOpen) { swSet(swOpen, 0, true); swOpen = null; } }
-  view.addEventListener('pointerdown', ev => {
-    const row = ev.target.closest('.sw'); if (swOpen && swOpen !== row) { swClose(); swEat = Date.now(); }
-    if (!row || ev.target.closest('.swdel') || (ev.pointerType === 'mouse' && ev.button)) return;
-    SW = { row, x0: ev.clientX, y0: ev.clientY, base: row === swOpen ? -SWW : 0, dx: 0, on: false };
-  });
-  view.addEventListener('pointermove', ev => {
-    if (!SW) return; const dx = ev.clientX - SW.x0, dy = ev.clientY - SW.y0;
-    if (!SW.on) { if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { SW = null; return; } if (Math.abs(dx) < 8) return; SW.on = true; }
-    const w = SW.row.offsetWidth; SW.dx = Math.min(0, Math.max(-w, SW.base + dx)); swSet(SW.row, SW.dx, false);
-    SW.row.classList.toggle('far', SW.dx < -w * 0.55);
-  });
+  function swStart(target, x, y) {
+    const row = target.closest('.sw'); if (swOpen && swOpen !== row) { swClose(); swEat = Date.now(); }
+    if (!row || target.closest('.swdel')) { SW = null; return; }
+    SW = { row, x0: x, y0: y, base: row === swOpen ? SWW : 0, x: 0, on: false, no: false };
+  }
+  // 回傳 true＝這一下是左滑（要擋住頁面捲動）
+  function swMove(x, y) {
+    if (!SW || SW.no) return false; const dx = x - SW.x0, dy = y - SW.y0;
+    if (!SW.on) {
+      if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return true; // 還沒判定前先別讓頁面動
+      if (Math.abs(dx) > Math.abs(dy) * 0.6 && (dx < 0 || SW.base)) SW.on = true; else { SW.no = true; return false; }
+    }
+    const w = SW.row.offsetWidth; SW.x = Math.min(w, Math.max(0, SW.base - dx)); swSet(SW.row, SW.x, false);
+    SW.row.classList.toggle('far', SW.x > w * 0.55); return true;
+  }
   const swEnd = () => {
-    if (!SW) return; const { row, on, dx } = SW; SW = null; if (!on) return; swEat = Date.now(); row.classList.remove('far');
-    if (dx < -row.offsetWidth * 0.55) { swSet(row, -row.offsetWidth, true); swOpen = null; setTimeout(() => row.querySelector('.swdel').click(), 160); }
-    else if (dx < -SWW / 2) { swSet(row, -SWW, true); swOpen = row; } else { swSet(row, 0, true); if (swOpen === row) swOpen = null; }
+    if (!SW) return; const { row, on, x } = SW; SW = null; if (!on) return; swEat = Date.now(); row.classList.remove('far');
+    if (x > row.offsetWidth * 0.55) { swSet(row, row.offsetWidth, true); swOpen = null; setTimeout(() => row.querySelector('.swdel').click(), 160); }
+    else if (x > SWW / 2) { swSet(row, SWW, true); swOpen = row; } else { swSet(row, 0, true); if (swOpen === row) swOpen = null; }
   };
-  view.addEventListener('pointerup', swEnd); view.addEventListener('pointercancel', swEnd);
+  view.addEventListener('touchstart', ev => { const t = ev.touches[0]; if (ev.touches.length === 1) swStart(ev.target, t.clientX, t.clientY); else SW = null; }, { passive: true });
+  view.addEventListener('touchmove', ev => { const t = ev.touches[0]; if (swMove(t.clientX, t.clientY) && ev.cancelable) ev.preventDefault(); }, { passive: false });
+  view.addEventListener('touchend', swEnd); view.addEventListener('touchcancel', swEnd);
+  // 電腦用滑鼠拖
+  view.addEventListener('pointerdown', ev => { if (ev.pointerType === 'mouse' && !ev.button) swStart(ev.target, ev.clientX, ev.clientY); });
+  view.addEventListener('pointermove', ev => { if (ev.pointerType === 'mouse') swMove(ev.clientX, ev.clientY); });
+  view.addEventListener('pointerup', ev => { if (ev.pointerType === 'mouse') swEnd(); });
   // 剛滑完的那一下不要當成「點進去編輯」
   view.addEventListener('click', ev => { if (Date.now() - swEat < 450) { swEat = 0; if (!ev.target.closest('.swdel')) { ev.stopPropagation(); ev.preventDefault(); } } }, true);
   document.addEventListener('input', ev => {

@@ -317,9 +317,10 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;heigh
 .backbtn{color:var(--gold);font-size:13.5px;padding:2px 0 10px;letter-spacing:.04em}
 /* 左滑刪除 */
 .sw{position:relative;overflow:hidden;border-top:1px solid var(--line)}
-.sw .entry{position:relative;z-index:1;border-top:0;background:#161d19;touch-action:pan-y;will-change:transform}
-.sw .swdel{position:absolute;right:0;top:0;bottom:0;width:84px;background:#b5524a;color:#fff;font-size:14px;font-weight:500;letter-spacing:.08em;display:flex;align-items:center;justify-content:center;transition:width .18s}
-.sw.far .swdel{width:100%;justify-content:flex-end;padding-right:28px}
+.sw .entry{position:relative;z-index:1;border-top:0;touch-action:manipulation;-webkit-user-select:none;user-select:none}
+.sw .entry:active{opacity:1}
+.sw .swdel{position:absolute;right:0;top:7px;bottom:7px;width:0;border-radius:12px;background:#b5524a;color:#fff;font-size:14px;font-weight:500;letter-spacing:.08em;display:flex;align-items:center;justify-content:center;overflow:hidden;white-space:nowrap}
+.sw.far .swdel{background:#c95b51}
 .sw:not(.open) .swdel{visibility:hidden}
 .sw.gone{animation:swgone .22s ease forwards}
 @keyframes swgone{to{opacity:0;max-height:0;padding:0}}
@@ -334,3 +335,15 @@ input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-sea
 .scanbox{position:relative;margin:6px 0 10px;border-radius:18px;overflow:hidden;background:#000;aspect-ratio:4/3;border:1px solid var(--line2)}
 .scanbox video{width:100%;height:100%;object-fit:cover;display:block}
 .scanbox i{position:absolute;left:12%;right:12%;top:30%;bottom:30%;border:2px solid rgba(216,196,143,.85);border-radius:12px;box-shadow:0 0 0 999px rgba(0,0,0,.35)}
+
+/* 每餐小計 */
+.mealsum{display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px;padding:0 0 10px 44px;margin-top:-4px;font-size:11.5px;color:var(--muted)}
+.mealsum>span{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.mealsum i{width:6px;height:6px;border-radius:50%;background:var(--k)}
+.mealsum b{color:var(--text);font-weight:500;font-size:13px;margin:0 1px 0 3px}
+.mealsum em{font-style:normal;color:var(--dim);font-size:11px;margin-left:1px}
+.mealsum .pct{margin-left:auto;color:var(--dim)}
+@media (max-width:360px){.mealsum{padding-left:0;gap:8px}}
+.mealsum .pct b{color:var(--gold)}
+.meal header .msum{text-align:right;line-height:1.15}
+.meal header .msum em{display:block;font-style:normal;font-family:var(--sans);font-size:10.5px;color:var(--gold);opacity:.85;letter-spacing:.04em;margin-top:2px}
