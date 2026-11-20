@@ -191,6 +191,10 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;heigh
 .sheet::-webkit-scrollbar{display:none}
 @keyframes up{from{transform:translateY(100%)}}
 .grab{width:38px;height:4px;border-radius:4px;background:var(--line2);margin:0 auto 14px}
+.sheet{position:relative}
+.sheet:has(.sxw) h2{padding-right:30px}
+.sxw{position:sticky;top:0;height:0;z-index:5}
+.sxw .xbtn{position:absolute;right:-8px;top:-4px;width:32px;height:32px;font-size:19px;background:rgba(40,50,45,.9)}
 .sheet h2{font-family:var(--serif);font-size:21px;letter-spacing:.06em;margin-bottom:2px}
 .sheet .sub{color:var(--muted);font-size:12.5px;margin-bottom:16px}
 .qbig{display:flex;align-items:baseline;justify-content:center;gap:8px;margin:8px 0 4px}

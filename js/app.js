@@ -405,7 +405,7 @@
     NFBC = barcode; NFED = edit; NFO = o; NFLIQ = edit && edit.liq != null ? !!edit.liq : NL.isLiquid(edit || { name });
     const u = edit && edit.units[0], per = v => edit ? r1(v * u.g / 100) : '';
     const mine = edit && S.custom.some(x => x.id === edit.id), base = edit && (FOODS.find(x => x.id === edit.id) || EXTMAP.get(edit.id));
-    sheet(`${(barcode && !edit) || o.net ? '<button class="backbtn" data-act="scan">‹ 重新掃描</button>' : ''}<h2>${o.net ? '對一下包裝' : edit ? '修改食物資料' : '新增自訂食物'}</h2><div class="sub">${o.net ? `網路上找到這個條碼（Open Food Facts，大家上傳的資料，可能是舊包裝或打錯）。請跟包裝背面的「營養標示」對一下，不一樣就照包裝改。${o.net === 'nosv' ? '網路資料沒寫每份多重，下面先用「每 100 克」，可以對包裝的「每100公克」那欄，或改成「每一份量」。' : ''}存好之後，掃這個條碼都用你對過的數字。` : edit ? (base && !mine ? '這是內建的數字（參考衛福部資料或一般做法估算）。照包裝或你吃的那家改，之後記的、說話記的都用你的數字；隨時可以還原。' : '照包裝上的「每一份量」營養標示改。') + '已經記過的紀錄不會變，要套新數字就點那一筆再按儲存。' : barcode ? `條碼 ${esc(barcode)} 還沒有資料。照包裝背面的營養標示填一次，下次掃這個條碼就直接帶出來。` : '照包裝上的「每一份量」營養標示填就可以'}</div>
+    sheet(`${(barcode && !edit) || o.net ? '<button class="backbtn" data-act="scan">‹ 重新掃描</button>' : o.back ? '<button class="backbtn" data-act="nfback">‹ 返回</button>' : ''}<h2>${o.net ? '對一下包裝' : edit ? '修改食物資料' : '新增自訂食物'}</h2><div class="sub">${o.net ? `網路上找到這個條碼（Open Food Facts，大家上傳的資料，可能是舊包裝或打錯）。請跟包裝背面的「營養標示」對一下，不一樣就照包裝改。${o.net === 'nosv' ? '網路資料沒寫每份多重，下面先用「每 100 克」，可以對包裝的「每100公克」那欄，或改成「每一份量」。' : ''}存好之後，掃這個條碼都用你對過的數字。` : edit ? (base && !mine ? '這是內建的數字（參考衛福部資料或一般做法估算）。照包裝或你吃的那家改，之後記的、說話記的都用你的數字；隨時可以還原。' : '照包裝上的「每一份量」營養標示改。') + '已經記過的紀錄不會變，要套新數字就點那一筆再按儲存。' : barcode ? `條碼 ${esc(barcode)} 還沒有資料。照包裝背面的營養標示填一次，下次掃這個條碼就直接帶出來。` : '照包裝上的「每一份量」營養標示填就可以'}</div>
       ${SR ? `<button class="nfmic" id="nfmic" data-act="nfmic">${MIC}<span>用講的填</span></button><div class="nfheard" id="nfheard">例：「每份 60 克，熱量 250 大卡，蛋白質 8 克，碳水 30，脂肪 11」</div>` : ''}
       <div class="field"><label>名稱</label><input id="nf-n" type="text" style="font-family:var(--sans);font-size:16px;width:190px" value="${esc(edit ? edit.name : name)}" placeholder="例如：公司樓下雞肉飯"></div>
       <div class="seg sm" id="nf-liq" style="margin:4px 0 2px"><button data-act="nfliq" data-v="0" class="${NFLIQ ? '' : 'on'}">吃的（克）</button><button data-act="nfliq" data-v="1" class="${NFLIQ ? 'on' : ''}">喝的（毫升）</button></div>
@@ -779,7 +779,7 @@
     onClose = closeFn || null;
     const had = !!$('#sheets .sheet');
     if (!had && !(history.state && history.state.sg)) history.pushState({ sg: 1 }, '');
-    $('#sheets').innerHTML = `<div class="scrim" data-act="scrim" ${had ? 'style="animation:none"' : ''}><div class="sheet ${cls}" ${had ? 'style="animation:none"' : ''}><div class="grab"></div>${html}</div></div>`;
+    $('#sheets').innerHTML = `<div class="scrim" data-act="scrim" ${had ? 'style="animation:none"' : ''}><div class="sheet ${cls}" ${had ? 'style="animation:none"' : ''}><div class="grab"></div>${/data-act="close"/.test(html) ? '' : '<div class="sxw"><button class="xbtn" data-act="close" aria-label="關閉">×</button></div>'}${html}</div></div>`;
   }
   function closeSheet(fromBack) {
     const open = !!$('#sheets .sheet');
@@ -787,6 +787,32 @@
     // 等一下再退回上一頁：關掉之後馬上又開別的視窗（例如沒認出的字→搜尋）就沿用同一筆，不退
     if (!fromBack && open) setTimeout(() => { if (!$('#sheets .sheet') && history.state && history.state.sg) { skipPop = true; history.back(); } }, 0);
   }
+  // 往下拉關面板：面板捲在最上面時往下拖，拖夠遠或甩得夠快就關，不夠就彈回去
+  (() => {
+    let sh = null, y0 = 0, t0 = 0, dy = 0, drag = false;
+    const host = $('#sheets');
+    host.addEventListener('touchstart', ev => {
+      const s = ev.target.closest('.sheet'); sh = null; drag = false; dy = 0; if (!s || ev.touches.length > 1) return;
+      if (ev.target.closest('input[type=range],canvas,video,.nodrag')) return;
+      for (let n = ev.target; n && n !== s.parentNode; n = n.parentNode) if (n.scrollTop > 0) return; // 裡面捲動中的清單先捲
+      sh = s; y0 = ev.touches[0].clientY; t0 = Date.now();
+    }, { passive: true });
+    host.addEventListener('touchmove', ev => {
+      if (!sh) return; dy = ev.touches[0].clientY - y0;
+      if (!drag) { if (dy < -4) { sh = null; return; } if (dy < 8) return; drag = true; sh.style.transition = 'none'; sh.style.animation = 'none'; if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }
+      ev.preventDefault(); sh.style.transform = `translateY(${Math.max(0, dy - 8)}px)`;
+    }, { passive: false });
+    const end = () => {
+      if (!sh || !drag) { sh = null; return; } const s = sh; sh = null; drag = false;
+      const v = dy / Math.max(1, Date.now() - t0);
+      if (dy > Math.min(140, s.offsetHeight * .28) || (v > .55 && dy > 40)) {
+        s.style.transition = 'transform .2s ease-in'; s.style.transform = 'translateY(100%)';
+        const sc = s.parentNode; if (sc) { sc.style.transition = 'opacity .2s'; sc.style.opacity = '0'; }
+        setTimeout(() => { if (s.isConnected) closeSheet(); }, 190);
+      } else { s.style.transition = 'transform .25s cubic-bezier(.2,.9,.2,1)'; s.style.transform = ''; }
+    };
+    host.addEventListener('touchend', end); host.addEventListener('touchcancel', end);
+  })();
   window.addEventListener('popstate', () => { if (skipPop) { skipPop = false; return; } if ($('#sheets .sheet')) closeSheet(true); });
   // undo：給了就在提示旁邊放「復原」，4 秒內可以按
   let tt, tUndo = null; function toast(msg, undo) {
@@ -830,7 +856,9 @@
       case 'bcgo': lookupBarcode($('#bc-in').value); break;
       case 'nfsave': saveNewFood(); break;
       case 'nfliq': NFLIQ = el.dataset.v === '1'; document.querySelectorAll('#nf-liq button').forEach(b => b.classList.toggle('on', b === el)); $('#nf-gl').textContent = NFLIQ ? '每份容量' : '每份重量'; $('#nf-gu').textContent = NFLIQ ? '毫升' : '克'; break;
-      case 'cfedit': { const f = foodById(el.dataset.fid); if (!f) break; const from = el.dataset.from || (Q && Q.editId ? 'entry' : 'qty'); openNewFood('', '', f, { from, q: from === 'entry' ? { meal: Q.meal, editId: Q.editId, entry: findEntry(Q.editId) && findEntry(Q.editId).e } : null }); break; }
+      case 'cfedit': { const f = foodById(el.dataset.fid); if (!f) break; const from = el.dataset.from || (Q && Q.editId ? 'entry' : 'qty'); const q = from === 'entry' ? { meal: Q.meal, editId: Q.editId, entry: findEntry(Q.editId) && findEntry(Q.editId).e } : null;
+        openNewFood('', '', f, { from, q, back: from === 'me' || !Q ? null : { f: Q.food, q: q || { meal: Q.meal, fromSearch: Q.fromSearch, ing: Q.ing } } }); break; }
+      case 'nfback': { const b = NFO.back; NFO = {}; NFED = null; if (b) openQty(foodById(b.f.id) || b.f, b.q); else closeSheet(); break; }
       case 'rcdel': { const old = S.recent.slice(), f = foodById(el.dataset.fid); S.recent = S.recent.filter(x => x !== el.dataset.fid); save('SG_RECENT', S.recent); renderResults();
         toast('已從最近吃過移除' + (f ? '「' + f.name + '」' : ''), () => { S.recent = old; save('SG_RECENT', S.recent); renderResults(); }); break; }
       case 'rcclear': { const old = S.recent.slice(); S.recent = []; save('SG_RECENT', S.recent); renderResults();
