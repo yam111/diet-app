@@ -178,9 +178,13 @@
   setTimeout(flushShare, 3000); window.addEventListener('online', flushShare);
   // 這版以前新增、沒條碼的自訂食物從來沒分享過：補送一次
   if (!load('SG_SHARE_OLD', 0)) setTimeout(() => { for (const f of S.custom.slice().reverse()) if (!f.barcode) shareFood(f); save('SG_SHARE_OLD', 1); }, 4000);
-  // v50 以前沒送上去的（每份不到 1 克等被擋掉）、共用庫裡也還沒有的沒條碼自訂食物：再補送一次
-  // 要等抓到伺服器上的清單才知道哪些沒上去
-  function resendMissing() { if (load('SG_SHARE_V50', 0)) return; if (!gasItems && !fsItems) return setTimeout(resendMissing, 5000); const have = new Set([...(gasItems || []), ...(fsItems || [])].map(r => r[1])); for (const f of S.custom.slice().reverse()) if (!f.barcode && !have.has(f.name)) shareFood(f); save('SG_SHARE_V50', 1); }
+  // 每次打開 App 都對一次：自己的自訂食物共用庫裡沒有的（當時沒網路、被擋、送失敗）就自動再送，不用等改版
+  let rsTry = 0;
+  function resendMissing() {
+    if ((!gasItems && !fsItems) || (FS && !fsItems)) { if (++rsTry < 12) setTimeout(resendMissing, 5000); return; }
+    const srv = [...(gasItems || []), ...(fsItems || [])], names = new Set(srv.map(r => r[1])), bcs = new Set(srv.map(r => r[0]).filter(Boolean));
+    for (const f of S.custom.slice().reverse()) if (f.barcode ? !bcs.has(f.barcode) : !names.has(f.name)) shareFood(f);
+  }
   setTimeout(resendMissing, 6000);
   rebuildFoods();
 
@@ -542,7 +546,7 @@
     const mine = edit && S.custom.some(x => x.id === edit.id), base = edit && (FOODS.find(x => x.id === edit.id) || EXTMAP.get(edit.id));
     sheet(`${(barcode && !edit) || o.net ? '<button class="backbtn" data-act="scan">‹ 重新掃描</button>' : o.back ? '<button class="backbtn" data-act="nfback">‹ 返回</button>' : ''}<h2>${o.net ? '對一下包裝' : edit ? '修改食物資料' : '新增自訂食物'}</h2><div class="sub">${o.net ? `網路上找到這個條碼（Open Food Facts，大家上傳的資料，可能是舊包裝或打錯）。請跟包裝背面的「營養標示」對一下，不一樣就照包裝改。${o.net === 'nosv' ? '網路資料沒寫每份多重，下面先用「每 100 克」，可以對包裝的「每100公克」那欄，或改成「每一份量」。' : ''}存好之後，掃這個條碼都用你對過的數字。` : edit ? (String(edit.id).startsWith('s_') && !mine ? '這是其他人掃這個條碼時照包裝填的數字。跟包裝對一下，不一樣就照包裝改。' : base && !mine ? '這是內建的數字（參考衛福部資料或一般做法估算）。照包裝或你吃的那家改，之後記的、說話記的都用你的數字；隨時可以還原。' : '照包裝上的「每一份量」營養標示改。') + '已經記過的紀錄不會變，要套新數字就點那一筆再按儲存。' : barcode ? `條碼 ${esc(barcode)} 還沒有資料。照包裝背面的營養標示填一次，下次掃這個條碼就直接帶出來。` : '照包裝上的「每一份量」營養標示填就可以'}${barcode || o.net || (edit && edit.barcode) ? '<p class="note" style="margin-top:6px">有條碼的食物存好後會分享到共用食物庫，其他人掃同一個條碼就查得到（只分享條碼、品名和營養數字）。</p>' : ''}</div>
       ${SR ? `<button class="nfmic" id="nfmic" data-act="nfmic">${MIC}<span>用講的填</span></button><div class="nfheard" id="nfheard">例：「老饕廚房番茄雞胸肉，每份 180 克，熱量 250，蛋白質 30，碳水 12，脂肪 8，糖 3，鈉 450 毫克」（品名先講，數字照包裝念）</div>` : ''}
-      <div class="field"><label>名稱</label><input id="nf-n" type="text" style="font-family:var(--sans);font-size:16px;width:190px" value="${esc(edit ? edit.name : name)}" placeholder="例如：公司樓下雞肉飯"></div>
+      <div class="field"><label>名稱</label><textarea id="nf-n" class="tx grow" rows="1" placeholder="例如：公司樓下雞肉飯">${esc(edit ? edit.name : name)}</textarea></div>
       <div class="seg sm" id="nf-liq" style="margin:4px 0 2px"><button data-act="nfliq" data-v="0" class="${NFLIQ ? '' : 'on'}">吃的（克）</button><button data-act="nfliq" data-v="1" class="${NFLIQ ? 'on' : ''}">喝的（毫升）</button></div>
       <div class="field"><label id="nf-gl">${NFLIQ ? '每份容量' : '每份重量'}${edit && u.n !== '份' ? '（1 ' + esc(u.n) + '）' : ''}</label><input id="nf-g" type="number" inputmode="decimal" value="${edit ? u.g : 100}"><span class="u" id="nf-gu">${NFLIQ ? '毫升' : '克'}</span></div>
       <div class="field"><label>每份熱量</label><input id="nf-k" type="number" inputmode="decimal" placeholder="0" value="${per(edit && edit.kcal)}"><span class="u">大卡</span></div>
@@ -683,14 +687,14 @@
     Q = null;
     const t = recipeSum(RE), y = RE.yields || 1;
     sheet(`<h2>${RE.id ? '編輯食譜' : '新增食譜'}</h2><div class="sub">存起來以後，搜尋或用講的說菜名，就會照食材分開記</div>
-      <div class="field"><label>菜名</label><input id="re-n" type="text" class="tx" value="${esc(RE.name)}" placeholder="例如：番茄炒蛋"></div>
+      <div class="field"><label>菜名</label><textarea id="re-n" class="tx grow" rows="1" placeholder="例如：番茄炒蛋">${esc(RE.name)}</textarea></div>
       <div class="field"><label>做一次可以吃幾份</label><input id="re-y" type="number" inputmode="decimal" value="${y}"><span class="u">份</span></div>
-      <div class="field"><label>其他叫法<small>選填</small></label><input id="re-a" type="text" class="tx" value="${esc(RE.alias)}" placeholder="例如：番茄蛋"></div>
+      <div class="field"><label>其他叫法<small>選填</small></label><textarea id="re-a" class="tx grow" rows="1" placeholder="例如：番茄蛋">${esc(RE.alias)}</textarea></div>
       <div class="sec">食材${RE.items.length ? ' · ' + RE.items.length + ' 樣 · 全部 ' + r0(t.kcal) + ' 大卡' : ''}</div>
       <div class="rlist">${RE.items.length ? RE.items.map((it, i) => { const v = calc(ingFood(it), it.grams);
         return `<div class="ri ed"><button class="rb" data-act="reing" data-i="${i}"><span>${esc(it.name)}</span><em>${esc(ingLabel(it))}${it.unit ? ' · ' + r0(it.grams) + ' ' + gu(ingFood(it)) : ''}</em><b class="num">${v.kcal}</b></button><button class="x" data-act="redel" data-i="${i}" aria-label="移除">×</button></div>`; }).join('')
         : '<div class="rempty">還沒有食材。可以一樣一樣搜尋，也可以整句打：<br>「雞胸肉200克 橄欖油一匙 高麗菜150克」</div>'}</div>
-      <div class="typebox"><input id="re-q" type="text" value="${esc(RE.q)}" placeholder="搜尋食材，或整句打完按加入" autocomplete="off" enterkeyhint="done"><button data-act="readd">加入</button></div>
+      <div class="typebox"><textarea id="re-q" class="grow" rows="1" placeholder="搜尋食材，或整句打完按加入" autocomplete="off" enterkeyhint="done">${esc(RE.q)}</textarea><button data-act="readd">加入</button></div>
       <div id="re-res"></div>
       <div id="re-sum">${reSum()}</div>
       ${RE.id ? `<div class="btnrow"><button class="btn danger" style="flex:.6" data-act="rerm">刪除食譜</button><button class="btn" data-act="resave">儲存</button></div>` : `<button class="btn" data-act="resave" style="margin-top:16px">儲存食譜</button>`}`);
@@ -757,7 +761,7 @@
     sheet(`<div class="voice"><h2>說說你吃了什麼</h2><div class="sub">例：「早餐吃了兩顆水煮蛋、一杯無糖豆漿，還有地瓜大概 150 克」</div>
       <button class="orb ${SR ? '' : 'off'}" id="orb" data-act="mic">${MIC}</button>
       <div class="heard ph" id="heard">${SR ? '點一下麥克風開始說' : '這個瀏覽器不支援語音辨識，請用下面的打字（鍵盤上的麥克風也可以用講的）'}</div>
-      <div class="typebox"><input id="vtext" type="text" placeholder="或直接打字：雞胸肉150克 白飯一碗" enterkeyhint="done"><button data-act="vsend">記錄</button></div></div>`, stopRec);
+      <div class="typebox"><textarea id="vtext" class="grow" rows="1" placeholder="或直接打字：雞胸肉150克 白飯一碗" enterkeyhint="done"></textarea><button data-act="vsend">記錄</button></div></div>`, stopRec);
     if (SR) startRec();
   }
   // 一直聽（continuous），慢慢講、中間停頓都不會斷；瀏覽器自己停了（有些手機一段時間會停）就馬上接著聽。
@@ -893,7 +897,7 @@
     sheet(`<div class="result">${added.length ? `<div class="okmark"><svg viewBox="0 0 24 24"><path d="m5 12.500 4.500 4.500L19 7.500"/></svg></div>
       <h2 style="text-align:center">已記錄 ${added.length} 項 · ${sum} 大卡</h2><div class="sub" style="text-align:center">記到${S.date !== today() ? dateLabel(S.date) + ' 的' : ''}${meals}</div>`
       : `<h2>沒有認出食物</h2>`}
-      <div class="fixbox"><input id="rtext" type="text" value="${esc(text)}" enterkeyhint="done" aria-label="聽到的內容"><button data-act="redo">改好重記</button></div>
+      <div class="fixbox"><textarea id="rtext" class="grow" rows="1" enterkeyhint="done" aria-label="聽到的內容">${esc(text)}</textarea><button data-act="redo">改好重記</button></div>
       <div class="fixhint">聽錯字的話直接改上面的字，按「改好重記」</div>
       <div id="rlist">${added.map(a => `<div class="entry" data-rid="${a.e.id}"><span class="n" data-act="vredit" data-id="${a.e.id}"><b>${esc(a.e.name)}${a.it.est ? '<span class="badge">估算份量</span>' : ''}</b><small>${mealName(a.it.meal)} · ${esc(eLabel(a.e))}${isAmt(a.e.label) ? '' : ' · ' + r0(a.e.grams) + ' ' + eu(a.e)}</small></span><span class="k">${a.e.kcal}<small>蛋 ${r0(a.e.p)} · 碳 ${r0(a.e.c)} · 脂 ${r0(a.e.f)}</small></span><button class="x" data-act="rdel" data-id="${a.e.id}" aria-label="移除">×</button></div>${altRow(a)}`).join('')}</div>
       ${unknown.length ? `<div class="unk">這幾個資料庫裡找不到，點一下可以搜尋或自己新增：<br>${unknown.map(u => `<button data-act="unk" data-q="${esc(u)}">${esc(u)}</button>`).join('')}</div>` : ''}
@@ -1175,8 +1179,13 @@
     else if (t.id === 'dpick') { const v = t.value; if (isDay(v) && v <= today()) { S.date = v; render(); } }
     else if (t.id === 'imp' && t.files[0]) { importData(t.files[0]); t.value = ''; } // 清掉，同一個檔案再選一次也有反應
   });
+  // 長字的輸入框用會自己長高的多行框：字多會換行，不用一直往後拉；Enter 一樣是送出／完成，不會換行
+  const grow = t => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; };
+  document.addEventListener('input', ev => { if (ev.target.classList && ev.target.classList.contains('grow')) grow(ev.target); }, true);
+  new MutationObserver(() => { for (const t of document.querySelectorAll('textarea.grow:not([data-g])')) { t.dataset.g = 1; requestAnimationFrame(() => grow(t)); } }).observe(document.body, { childList: true, subtree: true });
   document.addEventListener('keydown', ev => {
     if (ev.key !== 'Enter') return;
+    if (ev.target.tagName === 'TEXTAREA') { if (ev.isComposing || ev.keyCode === 229) return; ev.preventDefault(); if (!['vtext', 'rtext', 're-q'].includes(ev.target.id)) return ev.target.blur(); }
     if (ev.target.id === 'vtext') submitText(ev.target.value);
     else if (ev.target.id === 'rtext') { const b = $('[data-act=redo]'); if (b) b.click(); }
     else if (ev.target.id === 're-q') reAddText();
