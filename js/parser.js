@@ -76,31 +76,50 @@
     }
     return searchIn(q, foods, limit);
   }
+  // 料理方式（水煮、蒸、烤…）幾乎不加油，熱量跟原本差不多：「水煮花椰菜」「烤地瓜」「蒸餃」拿掉做法也去找
+  const COOK = /汆燙|川燙|清燙|水煮|白煮|清蒸|電鍋|氣炸|碳烤|炭烤|燒烤|火烤|烘烤|蒸|烤|燙|煮/g;
+  function scoreOne(q, qs, f) {
+    let best = 0;
+    const names = [f.name, ...f.alias];
+    for (let i = 0; i < names.length; i++) {
+      const n = names[i].toLowerCase();
+      const base = i === 0 ? 0 : -8; // 別名稍微排後面
+      let s = 0;
+      const idx = n.indexOf(q);
+      if (n === q) s = 120;
+      else if (idx === 0) s = 100;
+      else if (idx > 0) s = 85 - Math.min(idx, 10);
+      else {
+        // 每個字照順序都出現（蝦炒飯 → 蝦仁蛋炒飯）
+        let pos = 0, ok = true;
+        for (const ch of qs) { const j = n.indexOf(ch, pos); if (j < 0) { ok = false; break; } pos = j + 1; }
+        if (ok) s = 55;
+        else if (qs.length > 1 && qs.every(ch => n.includes(ch))) s = 35; // 字都有但順序不同
+      }
+      if (s && s + base > best) best = s + base;
+    }
+    if (!best && f.cat && f.cat.includes(q)) best = 20;
+    if (!best && f.brand && f.brand.some(b => b.toLowerCase().includes(q))) best = 30;
+    return best;
+  }
+  // 只對到一部分也列出來（排在後面）：「美朝健康」→ 健康餐盒；連著對到越多字越前面
+  function partial(q, qs, f) {
+    if (qs.length < 3) return 0;
+    const names = namesOf(f).join('|');
+    for (let L = qs.length - 1; L >= 2; L--) for (let i = 0; i + L <= qs.length; i++) {
+      const w = qs.slice(i, i + L).join(''); if (NUMCH.test(w[0]) && /^\d+$/.test(w)) continue;
+      if (names.includes(w)) return Math.min(30, 10 + L * 4);
+    }
+    return 0;
+  }
   function searchIn(q, foods, limit) {
     const qs = [...q];
+    const rest = q.replace(COOK, '').replace(/^的|的$/g, ''), rs = [...rest], useRest = rest && rest !== q;
     const out = [];
     for (const f of foods) {
-      let best = 0;
-      const names = [f.name, ...f.alias];
-      for (let i = 0; i < names.length; i++) {
-        const n = names[i].toLowerCase();
-        const base = i === 0 ? 0 : -8; // 別名稍微排後面
-        let s = 0;
-        const idx = n.indexOf(q);
-        if (n === q) s = 120;
-        else if (idx === 0) s = 100;
-        else if (idx > 0) s = 85 - Math.min(idx, 10);
-        else {
-          // 每個字照順序都出現（蝦炒飯 → 蝦仁蛋炒飯）
-          let pos = 0, ok = true;
-          for (const ch of qs) { const j = n.indexOf(ch, pos); if (j < 0) { ok = false; break; } pos = j + 1; }
-          if (ok) s = 55;
-          else if (qs.length > 1 && qs.every(ch => n.includes(ch))) s = 35; // 字都有但順序不同
-        }
-        if (s && s + base > best) best = s + base;
-      }
-      if (!best && f.cat && f.cat.includes(q)) best = 20;
-      if (!best && f.brand && f.brand.some(b => b.toLowerCase().includes(q))) best = 30;
+      let best = scoreOne(q, qs, f);
+      if (!best && useRest) { const r = scoreOne(rest, rs, f); if (r) best = Math.max(31, r - 25); }
+      if (!best) best = partial(q, qs, f);
       if (best) out.push({ f, s: best });
     }
     out.sort((a, b) => b.s - a.s || a.f.name.length - b.f.name.length);

@@ -340,13 +340,13 @@
   // 搜尋是從下方跳出的視窗（按各餐的＋或下方「搜尋」），不是另一頁
   function openSearch(meal, q = '') {
     S.meal = meal || S.meal || NL.mealByHour(new Date().getHours() + new Date().getMinutes() / 60); S.q = q; S.cat = '';
-    sheet(searchHTML(), null, 'srch'); renderResults();
+    sheet(searchHTML(), stopRec, 'srch'); renderResults();
     if (!q) setTimeout(() => { const i = $('#q'); if (i) i.focus(); }, 380);
   }
-  function backToSearch() { sheet(searchHTML(), null, 'srch'); renderResults(); }
+  function backToSearch() { sheet(searchHTML(), stopRec, 'srch'); renderResults(); }
   function searchHTML() {
     return `<div class="shead"><div class="sttl"><h2>加到${S.date === today() ? '' : shortDate(S.date) + '的'}<span id="smn">${mealName(S.meal)}</span></h2><button class="xbtn" data-act="close" aria-label="關閉">×</button></div>
-      <div class="searchbox"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.500"/><path d="m16 16 4.500 4.500"/></svg><input id="q" type="search" placeholder="搜尋食物…" value="${esc(S.q)}" autocomplete="off" enterkeyhint="search"><button data-act="clearq" ${S.q ? '' : 'hidden'}>×</button><button class="bcbtn" data-act="scan" aria-label="掃條碼"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M8 8v8M11 8v8M14 8v8M17 8v8"/></svg></button></div>
+      <div class="searchbox"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.500"/><path d="m16 16 4.500 4.500"/></svg><input id="q" type="search" placeholder="搜尋食物…" value="${esc(S.q)}" autocomplete="off" enterkeyhint="search"><button data-act="clearq" ${S.q ? '' : 'hidden'}>×</button>${SR ? `<button class="srmic" id="srmic" data-act="srmic" aria-label="用講的搜尋">${MIC}</button>` : ''}<button class="bcbtn" data-act="scan" aria-label="掃條碼"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M8 8v8M11 8v8M14 8v8M17 8v8"/></svg></button></div>
       <div class="seg sm" id="smeals">${MEALS.map(m => `<button data-act="smeal" data-meal="${m.k}" class="${S.meal === m.k ? 'on' : ''}">${m.k === 'snack' ? '小食' : m.n}</button>`).join('')}</div></div>
       <div id="results" class="sbody"></div>`;
   }
@@ -704,7 +704,7 @@
       };
       try { r.start(); } catch (e) { setTimeout(one, 300); }
     };
-    st.timer = setInterval(() => { const now = Date.now(); if ((st.any ? now - st.last > SIL : now - st.t0 > 12000) || now - st.t0 > 120000) st.finish(); }, 250);
+    st.timer = setInterval(() => { const now = Date.now(); if ((st.any ? now - st.last > (o.sil || SIL) : now - st.t0 > 12000) || now - st.t0 > 120000) st.finish(); }, 250);
     o.onStart(); one();
   }
   const micErr = e => e === 'not-allowed' || e === 'service-not-allowed' ? '麥克風沒有開放權限，請到瀏覽器設定允許' : '語音辨識暫時不能用（' + e + '）';
@@ -761,6 +761,19 @@
       onText: t => { if (box) box.textContent = t; },
       onDone: t => { if (b) b.classList.remove('live'); if (!$('#nfmic')) return; if (t) nfFill(t); else if (box) box.textContent = '沒聽到聲音，再點一下試試'; },
       onErr: e => { if (b) b.classList.remove('live'); if (box) box.textContent = micErr(e); },
+    });
+  }
+  // 搜尋框用講的：講一個食物名，停一下就自動搜尋（不用等 7 秒）
+  function startSrRec() {
+    const b = $('#srmic'), i = $('#q'), ph = i ? i.placeholder : '';
+    const setQ = t => { t = String(t || '').replace(/[，,。.！!？?、\s]+/g, ''); S.q = t; const q = $('#q'); if (q) q.value = t; const c = $('[data-act=clearq]'); if (c) c.hidden = !t; renderResults(); };
+    const done = () => { const b2 = $('#srmic'); if (b2) b2.classList.remove('live'); const q = $('#q'); if (q) q.placeholder = ph; };
+    listen({
+      sil: 1500,
+      onStart: () => { if (b) b.classList.add('live'); if (i) { i.blur(); i.placeholder = '正在聽…講食物名稱'; } },
+      onText: t => { if ($('#srmic')) setQ(t); },
+      onDone: t => { done(); if (!$('#srmic')) return; if (t) setQ(t); else toast('沒聽到聲音，再點一下麥克風試試'); },
+      onErr: e => { done(); toast(micErr(e)); },
     });
   }
   globalThis.__nutriFromSpeech = nutriFromSpeech; // 測試用
@@ -977,6 +990,7 @@
         toast('已清除最近吃過（紀錄本身不會刪）', () => { S.recent = old; save('SG_RECENT', S.recent); renderResults(); }); break; }
       case 'cfnew': openNewFood('', '', null, { from: 'me' }); break;
       case 'cfdel': if (NFED) deleteCustom(NFED.id); break;
+      case 'srmic': if (!SR) break; if (LS) LS.finish(); else startSrRec(); break;
       case 'nfmic': if (!SR) break; if (LS) LS.finish(); else startNfRec(); break;
       case 'rnew': openRecipe(null); break;
       case 'redit': openRecipe(el.dataset.rid); break;
