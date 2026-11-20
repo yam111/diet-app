@@ -343,13 +343,12 @@
     let html = '';
     if (q) {
       const ov = new Set(S.custom.map(o => o.id)), res = NL.search(q, 50), ext = NL.searchList(q, EXT, 60).filter(f => !ov.has(f.id)), seen = new Set(res.map(f => f.name)), br = NL.searchBrand(q, BEXT, 60).filter(f => !seen.has(f.name) && !ov.has(f.id)), mybc = new Set(S.custom.map(o => o.barcode).filter(Boolean)), sh = NL.searchList(q, SHARED, 30).filter(f => !mybc.has(f.barcode) && !ov.has(f.id));
-      html = res.length ? `<div class="sec">${res.length} 筆結果 · 記到${mealName(S.meal)}</div>` + res.map(f => f.recipe ? recipeRow(S.recipes.find(x => x.id === f.id)) : foodRow(f, q)).join('') : ext.length || br.length || sh.length ? '' : `<div class="nores">找不到「${esc(q)}」</div>`;
+      html = `<button class="btn ghost nfbtn" data-act="newfood">＋ 新增自訂食物${res.length || ext.length || br.length || sh.length ? '' : '「' + esc(q) + '」'}</button>` + (res.length ? `<div class="sec">${res.length} 筆結果 · 記到${mealName(S.meal)}</div>` + res.map(f => f.recipe ? recipeRow(S.recipes.find(x => x.id === f.id)) : foodRow(f, q)).join('') : ext.length || br.length || sh.length ? '' : `<div class="nores">找不到「${esc(q)}」</div>`);
       if (sh.length) html += `<div class="sec">大家掃過的包裝食品 · ${sh.length} 筆<em>照包裝營養標示填的</em></div>` + sh.map(f => foodRow(f, q)).join('');
       if (br.length) html += `<div class="sec">超商・連鎖店 · ${br.length >= 60 ? '60+' : br.length} 筆<em>每筆標明官網標示或估算</em></div>` + br.map(f => foodRow(f, q)).join('');
       if (ext.length) html += `<div class="sec">衛福部食品營養成分資料庫 · ${ext.length >= 60 ? '60+' : ext.length} 筆<em>每 100 克／毫升</em></div>` + ext.map(f => foodRow(f, q)).join('');
-      html += `<button class="btn ghost" style="margin-top:18px" data-act="newfood">＋ 新增自訂食物${res.length || ext.length ? '' : '「' + esc(q) + '」'}</button>`;
     } else {
-      html = `<div class="chips">${CATS.map(c => `<button class="chip ${S.cat === c ? 'on' : ''}" data-act="cat" data-cat="${c}">${c}</button>`).join('')}</div>`;
+      html = `<button class="btn ghost nfbtn" data-act="newfood">＋ 新增自訂食物</button><div class="chips">${CATS.map(c => `<button class="chip ${S.cat === c ? 'on' : ''}" data-act="cat" data-cat="${c}">${c}</button>`).join('')}</div>`;
       if (S.cat) html += ALL.filter(f => f.cat === S.cat).map(f => foodRow(f)).join('');
       else {
         const rec = S.recent.map(foodById).filter(f => f && !f.recipe);
@@ -357,7 +356,6 @@
         if (S.custom.length) html += '<div class="sec">我的自訂食物</div>' + S.custom.map(f => foodRow(f)).join('');
         if (rec.length) html += `<div class="sec sech">最近吃過<em>按 ＋ 照上次份量直接記</em><button data-act="rcclear">全部清除</button></div>` + rec.map(recentRow).join('');
         else html += '<div class="sec">常見</div>' + ['白飯', '雞蛋', '雞胸肉', '無糖豆漿', '地瓜', '蝦仁蛋炒飯', '香蕉', '拿鐵'].map(n => foodById('f_' + n)).filter(Boolean).map(f => foodRow(f)).join('');
-        html += `<button class="btn ghost" style="margin-top:18px" data-act="newfood">＋ 新增自訂食物</button>`;
       }
     }
     box.innerHTML = html;
@@ -433,7 +431,7 @@
     const u = edit && edit.units[0], per = v => edit ? r1(v * u.g / 100) : '';
     const mine = edit && S.custom.some(x => x.id === edit.id), base = edit && (FOODS.find(x => x.id === edit.id) || EXTMAP.get(edit.id));
     sheet(`${(barcode && !edit) || o.net ? '<button class="backbtn" data-act="scan">‹ 重新掃描</button>' : o.back ? '<button class="backbtn" data-act="nfback">‹ 返回</button>' : ''}<h2>${o.net ? '對一下包裝' : edit ? '修改食物資料' : '新增自訂食物'}</h2><div class="sub">${o.net ? `網路上找到這個條碼（Open Food Facts，大家上傳的資料，可能是舊包裝或打錯）。請跟包裝背面的「營養標示」對一下，不一樣就照包裝改。${o.net === 'nosv' ? '網路資料沒寫每份多重，下面先用「每 100 克」，可以對包裝的「每100公克」那欄，或改成「每一份量」。' : ''}存好之後，掃這個條碼都用你對過的數字。` : edit ? (String(edit.id).startsWith('s_') && !mine ? '這是其他人掃這個條碼時照包裝填的數字。跟包裝對一下，不一樣就照包裝改。' : base && !mine ? '這是內建的數字（參考衛福部資料或一般做法估算）。照包裝或你吃的那家改，之後記的、說話記的都用你的數字；隨時可以還原。' : '照包裝上的「每一份量」營養標示改。') + '已經記過的紀錄不會變，要套新數字就點那一筆再按儲存。' : barcode ? `條碼 ${esc(barcode)} 還沒有資料。照包裝背面的營養標示填一次，下次掃這個條碼就直接帶出來。` : '照包裝上的「每一份量」營養標示填就可以'}${barcode || o.net || (edit && edit.barcode) ? '<p class="note" style="margin-top:6px">有條碼的食物存好後會分享到共用食物庫，其他人掃同一個條碼就查得到（只分享條碼、品名和營養數字）。</p>' : ''}</div>
-      ${SR ? `<button class="nfmic" id="nfmic" data-act="nfmic">${MIC}<span>用講的填</span></button><div class="nfheard" id="nfheard">例：「每份 60 克，熱量 250 大卡，蛋白質 8 克，碳水 30，脂肪 11」</div>` : ''}
+      ${SR ? `<button class="nfmic" id="nfmic" data-act="nfmic">${MIC}<span>用講的填</span></button><div class="nfheard" id="nfheard">例：「老饕廚房番茄雞胸肉，每份 180 克，熱量 250，蛋白質 30，碳水 12，脂肪 8」（品名先講，數字照包裝念）</div>` : ''}
       <div class="field"><label>名稱</label><input id="nf-n" type="text" style="font-family:var(--sans);font-size:16px;width:190px" value="${esc(edit ? edit.name : name)}" placeholder="例如：公司樓下雞肉飯"></div>
       <div class="seg sm" id="nf-liq" style="margin:4px 0 2px"><button data-act="nfliq" data-v="0" class="${NFLIQ ? '' : 'on'}">吃的（克）</button><button data-act="nfliq" data-v="1" class="${NFLIQ ? 'on' : ''}">喝的（毫升）</button></div>
       <div class="field"><label id="nf-gl">${NFLIQ ? '每份容量' : '每份重量'}${edit && u.n !== '份' ? '（1 ' + esc(u.n) + '）' : ''}</label><input id="nf-g" type="number" inputmode="decimal" value="${edit ? u.g : 100}"><span class="u" id="nf-gu">${NFLIQ ? '毫升' : '克'}</span></div>
@@ -694,6 +692,12 @@
     if (out.k == null) { const m = /(\d+(?:\.\d+)?)大卡/.exec(s); if (m) out.k = parseFloat(m[1]); } // 「250大卡」
     const nm = /(?:名稱|名字|叫做?)(.+?)(?=熱量|蛋白|碳水|脂肪|每|份量|重量|容量|\d|$)/.exec(s);
     if (nm && nm[1].replace(/[，,、。是：:]/g, '')) out.n = nm[1].replace(/^[是：:]|[，,、。]/g, '');
+    // 沒說「名稱」：數字前面講的就當品名（「老饕廚房番茄雞胸肉 熱量 250 蛋白質 30…」）
+    if (out.n == null) {
+      const raw = String(text || '').replace(/\s+/g, ''), m = /熱量|蛋白|碳水|醣類|脂肪|油脂|能量|每一?份|份量|重量|容量|淨重|營養|[\d零〇一二兩三四五六七八九十百千]+(?:點[\d零〇一二三四五六七八九]+)?(?:大卡|卡|克|公克|毫升)/.exec(raw);
+      let n = (m ? raw.slice(0, m.index) : '').replace(/[，,、。：:！!？?]/g, '').replace(/^(?:我要)?(?:新增|加入|記錄?|紀錄)?(?:一個|一下)?(?:這個|這是|品名是?|是)?/, '').replace(/(?:的|它|他)?(?:營養標示|標示)?(?:是|有)?$/, '').replace(/[\d零〇一二兩三四五六七八九十]+(?:份|個|包|盒|瓶|罐|條|片|顆)$/, '');
+      if (n.length >= 2 && n.length <= 30) out.n = n;
+    }
     return out;
   }
   function nfFill(text) {
