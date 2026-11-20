@@ -432,7 +432,12 @@
       if (ext.length) html += `<div class="sec">衛福部食品營養成分資料庫 · ${ext.length >= 60 ? '60+' : ext.length} 筆<em>每 100 克／毫升</em></div>` + ext.map(f => foodRow(f, q)).join('');
     } else {
       html = `<button class="btn ghost nfbtn" data-act="newfood">＋ 新增自訂食物</button><div class="chips">${CATS.map(c => `<button class="chip ${S.cat === c ? 'on' : ''}" data-act="cat" data-cat="${c}">${c}</button>`).join('')}</div>`;
-      if (S.cat) html += ALL.filter(f => f.cat === S.cat).map(f => foodRow(f)).join('');
+      if (S.cat) {
+        html += ALL.filter(f => f.cat === S.cat).map(f => foodRow(f)).join('');
+        // 超商・連鎖店官網那份也照分類列出來（超商有上千項，先列 300 項，其他打店名＋品名搜）
+        const ov = new Set(S.custom.map(o => o.id)), nm = new Set(ALL.map(f => f.name)), bx = BEXT.filter(f => f.cat === S.cat && !ov.has(f.id) && !nm.has(f.name));
+        if (bx.length) html += `<div class="sec">超商・連鎖店 · ${bx.length} 筆<em>${bx.length > 300 ? '先列 300 筆，打店名＋品名（例：全家雞胸）找更多' : '每筆標明官網標示或估算'}</em></div>` + bx.slice(0, 300).map(f => foodRow(f)).join('');
+      }
       else {
         const rec = S.recent.map(foodById).filter(f => f && !f.recipe);
         html += `<div class="sec sech">我的食譜<button data-act="rnew">＋ 新增</button></div>` + (S.recipes.length ? S.recipes.map(recipeRow).join('') : '<div class="rempty">常煮的菜存成食譜（例如雞胸肉＋橄欖油＋高麗菜），以後說菜名就會照食材分開算。</div>');

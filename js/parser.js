@@ -120,11 +120,15 @@
   }
   // 料理方式（水煮、蒸、烤…）幾乎不加油，熱量跟原本差不多：「水煮花椰菜」「烤地瓜」「蒸餃」拿掉做法也去找
   const COOK = /汆燙|川燙|清燙|水煮|白煮|清蒸|電鍋|氣炸|碳烤|炭烤|燒烤|火烤|烘烤|蒸|烤|燙|煮/g;
+  // 搜的字只出現在店名裡（搜「漢堡」對到「漢堡王薯條」）不算對到品名，當成品牌對到排後面
+  let bwQ = null, bwList = [];
+  const inBrandOnly = (n, q) => { if (bwQ !== q) { bwQ = q; bwList = brands.map(x => x[0]).filter(w => w !== q && w.includes(q)); } for (const w of bwList) if (n.includes(w) && !n.split(w).join('').includes(q)) return true; return false; };
   function scoreOne(q, qs, f) {
     let best = 0;
     const names = [f.name, ...f.alias];
     for (let i = 0; i < names.length; i++) {
       const n = names[i].toLowerCase();
+      if (inBrandOnly(n, q)) { if (30 > best) best = 30; continue; }
       const base = i === 0 ? 0 : -8; // 別名稍微排後面
       let s = 0;
       const idx = n.indexOf(q);
