@@ -1,8 +1,14 @@
-require('../js/foods.js'); require('../js/parser.js');
+require('../js/foods.js'); require('../js/py.js'); require('../js/parser.js');
 NL.setFoods(FOODS);
 let fail = 0;
 const eq = (name, got, want) => { const ok = JSON.stringify(got) === JSON.stringify(want); if (!ok) { fail++; console.log('FAIL', name, '\n  got ', JSON.stringify(got), '\n  want', JSON.stringify(want)); } };
 const P = (txt, h = 12) => { const r = NL.parse(txt, h); return r.items.map(i => `${i.food.name}:${i.grams}:${i.meal[0]}`).join(' ') + (r.unknown.length ? ' ?' + r.unknown.join(',') : ''); };
+
+// 同音字校正（語音聽錯字）
+eq('音半斤半肉', P('午餐吃半斤半肉牛肉麵一碗'), '半筋半肉牛肉麵:700:l');
+eq('音閒酥雞', P('閒酥雞'), '鹹酥雞:200:l'.replace('200', String(NL.search('鹹酥雞')[0].units[0].g)));
+eq('音搜尋', NL.search('半斤半肉')[0].name, '半筋半肉牛肉麵');
+eq('音水煮鮪魚', NL.search('水煮鮪魚').slice(0, 1).map(f => f.name), ['鮪魚罐頭']);
 
 // 搜尋
 eq('s蝦', NL.search('蝦').map(f => f.name).includes('蝦仁蛋炒飯'), true);

@@ -15,7 +15,7 @@
     'Mister Donut': ['misterdonut', 'mrdonut', 'mr.donut', '米斯特'], '21世紀': ['21世紀風味館', '21世紀'], 必勝客: ['必勝客', 'pizzahut'], 達美樂: ['達美樂', 'dominos'], 漢堡王: ['漢堡王', 'burgerking'] };
 
   function setFoods(list) {
-    foods = list;
+    foods = list; pyIdx = null;
     nameMap = new Map(); singleMap = new Map(); maxLen = 2;
     rebuildBrands();
     const put = (k, f, primary) => {
@@ -30,12 +30,49 @@
     mine = list.filter(f => f.recipe || /^c_/.test(f.id || '')).map(f => ({ f, n: f.name.toLowerCase().replace(/\s+/g, '') }));
   }
 
+  // ---------- 同音字校正：語音聽成「半斤半肉牛肉麵」→ 資料庫裡讀音一樣的「半筋半肉牛肉麵」 ----------
+  let PY = null, pyIdx = null;
+  const pyNorm = p => p.replace(/^zh/, 'z').replace(/^ch/, 'c').replace(/^sh/, 's').replace(/ing$/, 'in').replace(/eng$/, 'en'); // 台灣口音捲舌、前後鼻音不分
+  function pyOf(ch) {
+    if (!PY) { PY = new Map(); for (const g of String(globalThis.PY_TABLE || '').split('|')) { const [k, v] = g.split(':'); if (v) for (const c of v) if (!PY.has(c)) PY.set(c, pyNorm(k)); } }
+    return PY.get(ch);
+  }
+  let known = null, knownMax = 2;
+  function buildPyIdx() {
+    pyIdx = new Map(); known = new Set(); knownMax = 2;
+    for (const [w] of brands) known.add(w);
+    for (const f of foods.concat(bfoods)) for (const n of namesOf(f)) {
+      if (n.length >= 2) { known.add(n); if (n.length > knownMax) knownMax = n.length; }
+      if (n.length < 3 || n.length > 14) continue;
+      const k = [...n].map(pyOf); if (k.includes(undefined)) continue;
+      const key = k.join(' '); if (!pyIdx.has(key)) pyIdx.set(key, n);
+    }
+  }
+  function fixSound(s) {
+    if (!globalThis.PY_TABLE || !s) return s;
+    if (!pyIdx) buildPyIdx();
+    const t = [...s], sy = t.map(pyOf), used = t.map(() => false);
+    // 本來就對到資料庫名稱的字不動（「鮪魚飯糰」裡的「魚飯糰」不能改成「御飯糰」）
+    for (let L = Math.min(knownMax, t.length); L >= 2; L--) for (let i = 0; i + L <= t.length; i++) {
+      if (used[i] || used[i + L - 1]) continue;
+      if (known.has(t.slice(i, i + L).join(''))) for (let j = i; j < i + L; j++) used[j] = true;
+    }
+    for (let L = Math.min(14, t.length); L >= 3; L--) for (let i = 0; i + L <= t.length; i++) {
+      if (used.slice(i, i + L).includes(true) || sy.slice(i, i + L).includes(undefined)) continue;
+      const sub = t.slice(i, i + L).join(''), hit = pyIdx.get(sy.slice(i, i + L).join(' '));
+      if (!hit || hit === sub) continue;
+      const same = [...hit].filter((c, j) => c === t[i + j]).length;
+      if (L === 3 && !same) continue; // 三個字全不一樣太冒險
+      for (let j = 0; j < L; j++) { t[i + j] = hit[j]; used[i + j] = true; }
+    }
+    return t.join('');
+  }
   function rebuildBrands() {
     const bs = new Map();
     for (const f of foods.concat(bfoods)) for (const b of f.brand || []) for (const w of BRAND_SYN[b] || [b]) bs.set(w.toLowerCase(), b);
     brands = [...bs].sort((a, b) => b[0].length - a[0].length);
   }
-  function setBrandFoods(list) { bfoods = list || []; rebuildBrands(); }
+  function setBrandFoods(list) { bfoods = list || []; pyIdx = null; rebuildBrands(); }
   // 品名裡的空白、連字號、括號念的時候不會講，比對前拿掉（「極饗-蒜蓉蝦拌麵」）
   const NC = new Map(); const namesOf = f => { let v = NC.get(f); if (!v) { v = [f.name, ...(f.alias || [])].map(x => x.toLowerCase().replace(/[\s\-‧・·_/()（）「」+＋]+/g, '')); NC.set(f, v); } return v; };
 
@@ -65,6 +102,11 @@
   function search(q, limit = 40) {
     q = (q || '').trim().toLowerCase().replace(/\s+/g, '');
     if (!q) return [];
+    const q2 = fixSound(q);
+    if (q2 !== q) { const a = search0(q2, limit), b = search0(q, limit); return [...a, ...b.filter(f => !a.includes(f))].slice(0, limit); }
+    return search0(q, limit);
+  }
+  function search0(q, limit) {
     // 「麥當勞」→ 那家的全部；「麥當勞薯條」→ 先找那家的薯條
     for (const [w, b] of brands) {
       if (!q.startsWith(w)) continue;
@@ -118,7 +160,7 @@
     const out = [];
     for (const f of foods) {
       let best = scoreOne(q, qs, f);
-      if (!best && useRest) { const r = scoreOne(rest, rs, f); if (r) best = Math.max(31, r - 25); }
+      if (!best && useRest) { const r = scoreOne(rest, rs, f); if (r) best = Math.max(31, Math.min(70, r - 25)); } // 拿掉做法才對到的，排在完整對到的後面
       if (!best) best = partial(q, qs, f);
       if (best) out.push({ f, s: best });
     }
@@ -213,8 +255,8 @@
   const M = '█'; // 已辨識的位置用這個字遮起來
 
   function parse(text, hour) {
-    const s = (text || '').toLowerCase().replace(/\s+/g, '').replace(/颗/g, '顆').replace(/个/g, '個')
-      .replace(/(^|[^\d零〇一二兩三四五六七八九十百千半.])([大中小](?:碗|杯|份|盤))/g, '$1一$2'); // 「滷肉飯小碗」＝一小碗
+    const s = fixSound((text || '').toLowerCase().replace(/\s+/g, '').replace(/颗/g, '顆').replace(/个/g, '個')
+      .replace(/(^|[^\d零〇一二兩三四五六七八九十百千半.])([大中小](?:碗|杯|份|盤))/g, '$1一$2')); // 「滷肉飯小碗」＝一小碗；fixSound：聽錯同音字先校正
     const n = s.length;
     const t = [...s]; // 遮罩用（這裡的食物名不含補充字元，直接用索引）
     const tokens = [];
@@ -480,7 +522,7 @@
   function fmt(n) { return (Math.round(n * 100) / 100).toString(); }
 
   // 另一份清單（例如衛福部完整資料庫）用同樣的規則搜尋
-  function searchList(q, list, limit = 40) { q = (q || '').trim().toLowerCase().replace(/\s+/g, ''); return q ? searchIn(q, list, limit) : []; }
+  function searchList(q, list, limit = 40) { q = (q || '').trim().toLowerCase().replace(/\s+/g, ''); if (!q) return []; const q2 = fixSound(q); if (q2 === q) return searchIn(q, list, limit); const a = searchIn(q2, list, limit); return [...a, ...searchIn(q, list, limit).filter(f => !a.includes(f))].slice(0, limit); }
   // 超商・連鎖店清單：開頭講品牌（「全家雞胸」）就只在那家裡找
   let bCache = null, bWords = [];
   function searchBrand(q, list, limit = 40) {
@@ -499,5 +541,5 @@
     }
     return searchIn(q, list, limit);
   }
-  globalThis.NL = { isLiquid, gu, setFoods, setBrandFoods, search, searchList, searchBrand, parse, cnNum, toGrams, mealByHour, sugarVariant };
+  globalThis.NL = { fixSound, isLiquid, gu, setFoods, setBrandFoods, search, searchList, searchBrand, parse, cnNum, toGrams, mealByHour, sugarVariant };
 })();

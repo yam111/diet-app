@@ -222,6 +222,12 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;heigh
 .heard.ph{color:var(--dim);font-size:14.5px;font-family:var(--sans)}
 .typebox{display:flex;gap:8px;margin-top:16px}
 .typebox input{flex:1;background:var(--s1);border:1px solid var(--line2);border-radius:15px;padding:13px 14px;font-size:16px;min-width:0}
+.fixbox{display:flex;gap:8px;margin-top:12px}
+.fixbox input{flex:1;background:var(--s1);border:1px solid var(--line2);border-radius:13px;padding:10px 12px;font-size:16px;min-width:0}
+.fixbox button{padding:0 14px;border-radius:13px;background:var(--s3);color:var(--gold2);font-size:13.5px;border:1px solid var(--line2);white-space:nowrap}
+.fixhint{font-size:12px;color:var(--muted);margin:6px 2px 4px;text-align:left}
+.alts{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin:-2px 0 10px 4px;text-align:left}
+.alts button{padding:4px 10px;border-radius:99px;border:1px solid var(--line2);color:var(--gold2);font-size:12px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .typebox button{padding:0 18px;border-radius:15px;background:var(--s3);color:var(--gold2);font-size:14px;border:1px solid var(--line2)}
 .result .entry:first-of-type{border-top:0}
 .result .entry .n{cursor:pointer}

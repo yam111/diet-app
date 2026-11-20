@@ -807,14 +807,23 @@
     drawResult(text, added, r.unknown); render();
   }
   let LR = null; // 剛剛語音記的結果（點進去改完回來用）
+  // 認出來的不是想要的那個：列出名字相近的其他食物，點一下換掉（例如別人新增的品牌鮪魚）
+  function altRow(a) {
+    const said = a.it && a.it.said; if (!said || a.it.combo) return '';
+    const cur = String(a.e.fid).split('@')[0];
+    const alts = NL.search(said, 12).filter(f => !f.recipe && f.id !== cur && f.name !== a.e.name).slice(0, 3);
+    return alts.length ? `<div class="alts" data-rid="${a.e.id}">換成${alts.map(f => `<button data-act="rswap" data-id="${a.e.id}" data-fid="${esc(f.id)}">${esc(f.name)}</button>`).join('')}</div>` : '';
+  }
   function drawResult(text, added, unknown) {
     LR = { text, added, unknown };
     const sum = added.reduce((a, x) => a + x.e.kcal, 0);
     const meals = [...new Set(added.map(a => mealName(a.it.meal)))].join('、');
     sheet(`<div class="result">${added.length ? `<div class="okmark"><svg viewBox="0 0 24 24"><path d="m5 12.500 4.500 4.500L19 7.500"/></svg></div>
-      <h2 style="text-align:center">已記錄 ${added.length} 項 · ${sum} 大卡</h2><div class="sub" style="text-align:center">記到${S.date !== today() ? dateLabel(S.date) + ' 的' : ''}${meals}「${esc(text)}」</div>`
-      : `<h2>沒有認出食物</h2><div class="sub">「${esc(text)}」</div>`}
-      <div id="rlist">${added.map(a => `<div class="entry" data-rid="${a.e.id}"><span class="n" data-act="vredit" data-id="${a.e.id}"><b>${esc(a.e.name)}${a.it.est ? '<span class="badge">估算份量</span>' : ''}</b><small>${mealName(a.it.meal)} · ${esc(eLabel(a.e))}${isAmt(a.e.label) ? '' : ' · ' + r0(a.e.grams) + ' ' + eu(a.e)}</small></span><span class="k">${a.e.kcal}<small>蛋 ${r0(a.e.p)} · 碳 ${r0(a.e.c)} · 脂 ${r0(a.e.f)}</small></span><button class="x" data-act="rdel" data-id="${a.e.id}" aria-label="移除">×</button></div>`).join('')}</div>
+      <h2 style="text-align:center">已記錄 ${added.length} 項 · ${sum} 大卡</h2><div class="sub" style="text-align:center">記到${S.date !== today() ? dateLabel(S.date) + ' 的' : ''}${meals}</div>`
+      : `<h2>沒有認出食物</h2>`}
+      <div class="fixbox"><input id="rtext" type="text" value="${esc(text)}" enterkeyhint="done" aria-label="聽到的內容"><button data-act="redo">改好重記</button></div>
+      <div class="fixhint">聽錯字的話直接改上面的字，按「改好重記」</div>
+      <div id="rlist">${added.map(a => `<div class="entry" data-rid="${a.e.id}"><span class="n" data-act="vredit" data-id="${a.e.id}"><b>${esc(a.e.name)}${a.it.est ? '<span class="badge">估算份量</span>' : ''}</b><small>${mealName(a.it.meal)} · ${esc(eLabel(a.e))}${isAmt(a.e.label) ? '' : ' · ' + r0(a.e.grams) + ' ' + eu(a.e)}</small></span><span class="k">${a.e.kcal}<small>蛋 ${r0(a.e.p)} · 碳 ${r0(a.e.c)} · 脂 ${r0(a.e.f)}</small></span><button class="x" data-act="rdel" data-id="${a.e.id}" aria-label="移除">×</button></div>${altRow(a)}`).join('')}</div>
       ${unknown.length ? `<div class="unk">這幾個資料庫裡找不到，點一下可以搜尋或自己新增：<br>${unknown.map(u => `<button data-act="unk" data-q="${esc(u)}">${esc(u)}</button>`).join('')}</div>` : ''}
       <div class="btnrow" style="margin-top:16px"><button class="btn ghost" data-act="voice">再說一次</button><button class="btn" data-act="close">完成</button></div>
       ${added.length > 1 ? '<button class="linkbtn" data-act="rfrom">把這幾樣存成食譜，下次說菜名就好</button>' : ''}
@@ -1018,7 +1027,13 @@
       case 'voice': openVoice(); break;
       case 'mic': if (!SR) break; if (LS) LS.finish(); else startRec(); break;
       case 'vsend': submitText($('#vtext').value); break;
-      case 'rdel': if (LR) LR.added = LR.added.filter(x => x.e.id !== el.dataset.id); removeEntry(el.dataset.id, S.batchDate || S.date); el.closest('.entry').remove(); render(); if (!$('#rlist .entry')) closeSheet(); break;
+      case 'rdel': if (LR) LR.added = LR.added.filter(x => x.e.id !== el.dataset.id); removeEntry(el.dataset.id, S.batchDate || S.date); { const al = el.closest('.entry').nextElementSibling; if (al && al.classList.contains('alts')) al.remove(); } el.closest('.entry').remove(); render(); if (!$('#rlist .entry')) closeSheet(); break;
+      case 'redo': { const t = ($('#rtext') || {}).value || ''; if (!t.trim()) { toast('還沒有內容'); break; } const d = S.batchDate || S.date; for (const id of S.lastBatch || []) removeEntry(id, d); S.lastBatch = []; submitText(t); break; }
+      case 'rswap': { const d = S.batchDate || S.date, f = findEntry(el.dataset.id, d), food = foodById(el.dataset.fid), x = LR && LR.added.find(y => y.e.id === el.dataset.id); if (!f || !food || !x) break;
+        const o = f.e; let grams = o.grams, label = o.label, extra = {};
+        if (!isAmt(o.label)) { const amt = o.amount || parseFloat(o.label) || 1, u = food.units.find(u => u.n === o.unit) || food.units[0]; grams = u.g * amt; label = fmtN(amt) + ' ' + u.n; extra = { unit: u.n, amount: amt }; }
+        removeEntry(o.id, d); const ne = addEntry(food, grams, label, f.meal, extra, d);
+        x.e = ne; S.lastBatch = (S.lastBatch || []).map(id => id === o.id ? ne.id : id); render(); drawResult(LR.text, LR.added, LR.unknown); toast('換成「' + food.name + '」'); break; }
       case 'unk': closeSheet(); S.tab = 'today'; render(); openSearch(null, el.dataset.q); break;
       case 'close': closeSheet(); break;
       case 'start': S.profile = draft; save('SG_PROFILE', S.profile); S.tab = 'today'; view.scrollTop = 0; render(); toast('設定完成，開始記錄吧'); break;
@@ -1091,6 +1106,7 @@
   document.addEventListener('keydown', ev => {
     if (ev.key !== 'Enter') return;
     if (ev.target.id === 'vtext') submitText(ev.target.value);
+    else if (ev.target.id === 'rtext') { const b = $('[data-act=redo]'); if (b) b.click(); }
     else if (ev.target.id === 're-q') reAddText();
     else if (ev.target.id === 'qamt') { Q.amount = ev.target.value; saveQty(); }
     else if (ev.target.id === 'q') ev.target.blur();
