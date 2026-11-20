@@ -2,7 +2,8 @@
 // 食光 共用條碼食物庫（Google Apps Script，綁在試算表「食光 共用條碼食物庫」上）
 // 部署：部署 → 新增部署作業 → 網頁應用程式，執行身分「我」、存取權「所有人」
 // 大家掃條碼、照包裝存好的食物會 POST 到這裡（只有條碼、品名、營養數字，沒有任何個人資料）
-// App 用 GET 讀回：同一個條碼取最新一筆；「停用」打勾的那筆不給（有人亂填就在試算表打勾）
+// 沒條碼的自訂食物也收（條碼欄空白，用品名當鍵）
+// App 用 GET 讀回：同一個條碼（沒條碼就同一個品名）取最新一筆；「停用」打勾的那筆不給（有人亂填就在試算表打勾）
 const SHEET = '條碼食物';
 const HEAD = ['時間', '條碼', '名稱', '每份克', '液體', '每100熱量', '每100蛋白質', '每100碳水', '每100脂肪', '停用', '每100糖', '每100鈉mg', '每100飽和脂肪', '每100反式脂肪', '每100膳食纖維'];
 // 糖、鈉…是後來加的，接在「停用」後面，舊資料不用搬；沒填＝空白（不知道）
@@ -23,7 +24,7 @@ function sheet_() {
 
 function clean_(d) {
   const bc = String(d.barcode || '').replace(/\D/g, '');
-  if (bc.length < 8 || bc.length > 14) return null;
+  if (bc && (bc.length < 8 || bc.length > 14)) return null;
   const name = String(d.name || '').replace(/[\u0000-\u001f<>]/g, '').replace(/^[=+\-@]+/, '').trim().slice(0, 40);
   if (!name) return null;
   const num = (v, lo, hi) => { v = Number(v); return isFinite(v) && v >= lo && v <= hi ? Math.round(v * 10) / 10 : NaN; };
@@ -48,9 +49,10 @@ function doPost(e) {
     // 跟這個條碼最新一筆一模一樣就不重複寫
     if (n > 1) {
       const v = s.getRange(2, 2, n - 1, HEAD.length - 1).getValues().map(r => r.slice(0, 8).concat(r.slice(9, 14)));
-      for (let i = v.length - 1; i >= 0; i--) if (String(v[i][0]) === row[0]) { if (v[i].every((x, j) => String(x) === String(row[j]))) return out_({ ok: 1, same: 1 }); break; }
+      const key = r => String(r[0]).replace(/\D/g, '') || 'n:' + String(r[1]), k0 = key(row);
+      for (let i = v.length - 1; i >= 0; i--) if (key(v[i]) === k0) { if (v[i].every((x, j) => String(x) === String(row[j]))) return out_({ ok: 1, same: 1 }); break; }
     }
-    s.appendRow([new Date(), "'" + row[0]].concat(row.slice(1, 8)).concat([false]).concat(row.slice(8)));
+    s.appendRow([new Date(), row[0] ? "'" + row[0] : ''].concat(row.slice(1, 8)).concat([false]).concat(row.slice(8)));
     s.getRange(s.getLastRow(), 10).insertCheckboxes();
     return out_({ ok: 1 });
   } finally { lock.releaseLock(); }
@@ -60,8 +62,8 @@ function doGet(e) {
   const s = sheet_(), n = s.getLastRow(), want = String((e && e.parameter && e.parameter.bc) || '').replace(/\D/g, '');
   const m = {};
   if (n > 1) for (const r of s.getRange(2, 1, n - 1, HEAD.length).getValues()) {
-    const bc = String(r[1]).replace(/\D/g, ''); if (!bc || r[9] === true || (want && bc !== want)) continue;
-    m[bc] = [bc, String(r[2]), +r[3], r[4] ? 1 : 0, +r[5], +r[6], +r[7], +r[8]].concat(r.slice(10, 15).map(x => x === '' || x == null ? null : +x));
+    const bc = String(r[1]).replace(/\D/g, ''), name = String(r[2]); if (!name || r[9] === true || (want && bc !== want)) continue;
+    m[bc || 'n:' + name] = [bc, String(r[2]), +r[3], r[4] ? 1 : 0, +r[5], +r[6], +r[7], +r[8]].concat(r.slice(10, 15).map(x => x === '' || x == null ? null : +x));
   }
   return out_({ ok: 1, items: Object.values(m) });
 }
