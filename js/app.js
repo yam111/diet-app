@@ -50,7 +50,7 @@
   const nxR = (k, v) => k === 'na' ? Math.round(v) : k === 'tr' ? Math.round(v * 100) / 100 : Math.round(v * 10) / 10;
   let ALL = [];
   let RFOODS = [];
-  function rebuildFoods() { const ov = new Set(S.custom.map(o => o.id)); ALL = S.custom.concat(FOODS.filter(f => !ov.has(f.id))); RFOODS = S.recipes.map(recipeFood).filter(Boolean); ALL = RFOODS.concat(ALL); NL.setFoods(ALL); }
+  function rebuildFoods() { const ov = new Set(S.custom.map(o => o.id)); ALL = S.custom.concat(FOODS.filter(f => !ov.has(f.id))); RFOODS = S.recipes.map(recipeFood).filter(Boolean); ALL = RFOODS.concat(ALL); const nm = new Set(ALL.map(f => f.name)), bc = new Set(S.custom.map(o => o.barcode).filter(Boolean)); ALL = ALL.concat(SHARED.filter(f => !nm.has(f.name) && !(f.barcode && bc.has(f.barcode)))); NL.setFoods(ALL); }
   // 食材：資料庫找得到就用最新的數值，找不到（自訂食物被刪了）就用存食譜當下的數值
   function ingFood(it) { return foodById(it.fid) || { id: it.fid, name: it.name, alias: [], kcal: it.kcal, p: it.p, c: it.c, f: it.f, ...pickNx(it), units: [{ n: '份', g: it.grams }], cat: '' }; }
   // 其他營養素：每樣食材都有資料才算得出整道（有一樣不知道就是不知道）
@@ -91,7 +91,7 @@
   const sharedFood = ([bc, name, g, liq, k, p, c, f, ...nx]) => ({ id: bc ? 's_' + bc : 's_n' + nameKey(name), name, alias: [], kcal: k, p, c, f, ...nxOf(nx), units: [{ n: '份', g: g > 0 ? g : 100 }], cat: bc ? '條碼' : '大家新增', ...(bc ? { st: '大家掃的' } : {}), ...(bc ? { barcode: bc } : {}), liq: liq ? 1 : 0, ext: 1 });
   const shKey = it => Array.isArray(it) ? (it[0] || 'n:' + it[1]) : (it.barcode || 'n:' + it.name);
   let SHARED = [];
-  function setShared(items) { for (const x of SHARED) EXTMAP.delete(x.id); SHARED = items.map(sharedFood); for (const x of SHARED) EXTMAP.set(x.id, x); }
+  function setShared(items) { for (const x of SHARED) EXTMAP.delete(x.id); SHARED = items.map(sharedFood); for (const x of SHARED) EXTMAP.set(x.id, x); if (ALL.length) rebuildFoods(); }
   setShared(load('SG_SHARED', []));
   const fetchShared = (q = '') => fetch(SHARE_URL + q, { cache: 'no-store' }).then(r => r.json()).then(j => j && j.ok && Array.isArray(j.items) ? j.items : Promise.reject());
   // 開 App 抓一次；之後每次打開搜尋、離上次超過 1 分鐘就再抓（別人剛新增的，不用重開 App 也看得到）
@@ -376,9 +376,8 @@
     const box = $('#results'); if (!box) return; const q = S.q.trim();
     let html = '';
     if (q) {
-      const ov = new Set(S.custom.map(o => o.id)), res = NL.search(q, 50), ext = NL.searchList(q, EXT, 60).filter(f => !ov.has(f.id)), seen = new Set(res.map(f => f.name)), br = NL.searchBrand(q, BEXT, 60).filter(f => !seen.has(f.name) && !ov.has(f.id)), mybc = new Set(S.custom.map(o => o.barcode).filter(Boolean)), myn = new Set(S.custom.map(o => o.name)), sh = NL.searchList(q, SHARED, 30).filter(f => !(f.barcode && mybc.has(f.barcode)) && !myn.has(f.name) && !ov.has(f.id));
-      html = `<button class="btn ghost nfbtn" data-act="newfood">＋ 新增自訂食物${res.length || ext.length || br.length || sh.length ? '' : '「' + esc(q) + '」'}</button>` + (res.length ? `<div class="sec">${res.length} 筆結果 · 記到${mealName(S.meal)}</div>` + res.map(f => f.recipe ? recipeRow(S.recipes.find(x => x.id === f.id)) : foodRow(f, q)).join('') : ext.length || br.length || sh.length ? '' : `<div class="nores">找不到「${esc(q)}」</div>`);
-      if (sh.length) html += `<div class="sec">大家新增的食物 · ${sh.length} 筆<em>其他人自己填的營養數字</em></div>` + sh.map(f => foodRow(f, q)).join('');
+      const ov = new Set(S.custom.map(o => o.id)), res = NL.search(q, 50), ext = NL.searchList(q, EXT, 60).filter(f => !ov.has(f.id)), seen = new Set(res.map(f => f.name)), br = NL.searchBrand(q, BEXT, 60).filter(f => !seen.has(f.name) && !ov.has(f.id));
+      html = `<button class="btn ghost nfbtn" data-act="newfood">＋ 新增自訂食物${res.length || ext.length || br.length ? '' : '「' + esc(q) + '」'}</button>` + (res.length ? `<div class="sec">${res.length} 筆結果 · 記到${mealName(S.meal)}</div>` + res.map(f => f.recipe ? recipeRow(S.recipes.find(x => x.id === f.id)) : foodRow(f, q)).join('') : ext.length || br.length ? '' : `<div class="nores">找不到「${esc(q)}」</div>`);
       if (br.length) html += `<div class="sec">超商・連鎖店 · ${br.length >= 60 ? '60+' : br.length} 筆<em>每筆標明官網標示或估算</em></div>` + br.map(f => foodRow(f, q)).join('');
       if (ext.length) html += `<div class="sec">衛福部食品營養成分資料庫 · ${ext.length >= 60 ? '60+' : ext.length} 筆<em>每 100 克／毫升</em></div>` + ext.map(f => foodRow(f, q)).join('');
     } else {
