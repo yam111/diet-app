@@ -602,18 +602,43 @@
       <div class="typebox"><input id="vtext" type="text" placeholder="或直接打字：雞胸肉150克 白飯一碗" enterkeyhint="done"><button data-act="vsend">記錄</button></div></div>`, stopRec);
     if (SR) startRec();
   }
-  function startRec() {
+  // 瀏覽器講完一句（停頓一下）就會自己停，這裡停了就馬上接著聽、把每段接起來；
+  // 停下來約 4 秒沒再講，或點一下麥克風，才算講完。最長 90 秒。
+  let LS = null;
+  function listen(o) {
     stopRec();
-    try {
-      rec = new SR(); rec.lang = 'zh-TW'; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
-      let fin = '';
-      rec.onstart = () => { const o = $('#orb'); if (o) o.classList.add('live'); const h = $('#heard'); if (h && !heard) { h.textContent = '正在聽…'; } };
-      rec.onresult = ev => { let it = ''; fin = ''; for (const r of ev.results) (r.isFinal ? (fin += r[0].transcript) : (it += r[0].transcript)); heard = fin + it; const h = $('#heard'); if (h) { h.classList.remove('ph'); h.textContent = heard; } };
-      rec.onerror = ev => { const h = $('#heard'); if (!h) return; h.classList.add('ph');
-        h.textContent = ev.error === 'not-allowed' || ev.error === 'service-not-allowed' ? '麥克風沒有開放權限，請到瀏覽器設定允許，或用下面打字' : ev.error === 'no-speech' ? '沒聽到聲音，再點一下麥克風試試' : '語音辨識暫時不能用（' + ev.error + '），可以先用打字'; };
-      rec.onend = () => { const o = $('#orb'); if (o) o.classList.remove('live'); rec = null; if (heard.trim() && $('#orb')) submitText(heard); };
-      rec.start();
-    } catch (e) { rec = null; }
+    const st = LS = { acc: '', cur: '', t0: Date.now(), last: Date.now(), any: false, done: false, quick: 0 };
+    const text = () => (st.acc && st.cur ? st.acc + '，' + st.cur : st.acc + st.cur).trim();
+    const end = () => { st.done = true; clearInterval(st.timer); if (LS === st) LS = null; if (rec) { try { rec.onend = null; rec.abort(); } catch (e) { } rec = null; } };
+    st.finish = () => { if (st.done) return; const t = text(); end(); o.onDone(t); };
+    const one = () => {
+      if (st.done) return;
+      let r; try { r = new SR(); } catch (e) { return st.finish(); }
+      const t1 = Date.now(); rec = r; r.lang = 'zh-TW'; r.interimResults = true; r.continuous = false; r.maxAlternatives = 1;
+      r.onresult = ev => { let x = ''; for (const y of ev.results) x += y[0].transcript; st.cur = x; st.last = Date.now(); st.any = true; o.onText(text()); };
+      r.onerror = ev => { if (/not-allowed|audio-capture/.test(ev.error)) st.fatal = ev.error; else if (ev.error !== 'no-speech' && ev.error !== 'aborted') st.err = ev.error; };
+      r.onend = () => {
+        if (rec === r) rec = null; if (st.done) return;
+        const t = text(); st.acc = t; st.cur = '';
+        if (st.fatal) { end(); return o.onErr(st.fatal); }
+        st.quick = Date.now() - t1 < 400 ? st.quick + 1 : 0; // 一直秒停（辨識服務出問題）就別再試
+        if (st.quick >= 4) { if (t) return st.finish(); end(); return o.onErr(st.err || 'network'); }
+        setTimeout(one, 50);
+      };
+      try { r.start(); } catch (e) { setTimeout(one, 300); }
+    };
+    st.timer = setInterval(() => { const now = Date.now(); if ((st.any ? now - st.last > 4000 : now - st.t0 > 10000) || now - st.t0 > 90000) st.finish(); }, 250);
+    o.onStart(); one();
+  }
+  const micErr = e => e === 'not-allowed' || e === 'service-not-allowed' ? '麥克風沒有開放權限，請到瀏覽器設定允許' : '語音辨識暫時不能用（' + e + '）';
+  function startRec() {
+    const o = $('#orb'), h = () => $('#heard');
+    listen({
+      onStart: () => { heard = ''; if (o) o.classList.add('live'); if (h()) { h().classList.add('ph'); h().textContent = '正在聽…慢慢講沒關係，講完點一下麥克風'; } },
+      onText: t => { heard = t; if (h()) { h().classList.remove('ph'); h().textContent = t; } },
+      onDone: t => { if (o) o.classList.remove('live'); if (!$('#orb')) return; if (t) submitText(t); else if (h()) { h().classList.add('ph'); h().textContent = '沒聽到聲音，再點一下麥克風試試'; } },
+      onErr: e => { if (o) o.classList.remove('live'); if (h()) { h().classList.add('ph'); h().textContent = micErr(e) + '，可以用下面打字'; } },
+    });
   }
   // 自訂食物表單：講「每份 60 克 熱量 250 蛋白質 8 碳水 30 脂肪 11」自動填進欄位
   function nutriFromSpeech(text) {
@@ -644,19 +669,16 @@
     if (box) { box.classList.remove('ph'); box.innerHTML = '「' + esc(text) + '」<br>' + (set.length ? '已填入：' + set.join('、') + '，請對一下再存' : '沒聽出數字，可以說「熱量 250 蛋白質 8」這樣'); }
   }
   function startNfRec() {
-    stopRec();
-    try {
-      let txt = ''; rec = new SR(); rec.lang = 'zh-TW'; rec.interimResults = true; rec.continuous = false;
-      const b = $('#nfmic'), box = $('#nfheard');
-      rec.onstart = () => { if (b) b.classList.add('live'); if (box) box.textContent = '正在聽…照包裝念：每份幾克、熱量、蛋白質、碳水、脂肪'; };
-      rec.onresult = ev => { txt = [...ev.results].map(r => r[0].transcript).join(''); if (box) box.textContent = txt; };
-      rec.onerror = ev => { if (box) box.textContent = ev.error === 'not-allowed' || ev.error === 'service-not-allowed' ? '麥克風沒有開放權限，請到瀏覽器設定允許' : ev.error === 'no-speech' ? '沒聽到聲音，再點一下試試' : '語音辨識暫時不能用（' + ev.error + '）'; };
-      rec.onend = () => { if (b) b.classList.remove('live'); rec = null; if (txt.trim() && $('#nfmic')) nfFill(txt); };
-      rec.start();
-    } catch (e) { rec = null; }
+    const b = $('#nfmic'), box = $('#nfheard');
+    listen({
+      onStart: () => { if (b) b.classList.add('live'); if (box) box.textContent = '正在聽…照包裝念：每份幾克、熱量、蛋白質、碳水、脂肪，念完點一下按鈕'; },
+      onText: t => { if (box) box.textContent = t; },
+      onDone: t => { if (b) b.classList.remove('live'); if (!$('#nfmic')) return; if (t) nfFill(t); else if (box) box.textContent = '沒聽到聲音，再點一下試試'; },
+      onErr: e => { if (b) b.classList.remove('live'); if (box) box.textContent = micErr(e); },
+    });
   }
   globalThis.__nutriFromSpeech = nutriFromSpeech; // 測試用
-  function stopRec() { if (rec) { try { rec.onend = null; rec.abort(); } catch (e) { } rec = null; } }
+  function stopRec() { if (LS) { const l = LS; LS = null; l.done = true; clearInterval(l.timer); } if (rec) { try { rec.onend = null; rec.abort(); } catch (e) { } rec = null; } }
   function submitText(text) {
     text = (text || '').trim(); if (!text) return toast('還沒有內容');
     stopRec();
@@ -865,7 +887,7 @@
         toast('已清除最近吃過（紀錄本身不會刪）', () => { S.recent = old; save('SG_RECENT', S.recent); renderResults(); }); break; }
       case 'cfnew': openNewFood('', '', null, { from: 'me' }); break;
       case 'cfdel': if (NFED) deleteCustom(NFED.id); break;
-      case 'nfmic': if (!SR) break; if (rec) { try { rec.stop(); } catch (e) { } } else startNfRec(); break;
+      case 'nfmic': if (!SR) break; if (LS) LS.finish(); else startNfRec(); break;
       case 'rnew': openRecipe(null); break;
       case 'redit': openRecipe(el.dataset.rid); break;
       case 'rfrom': { const d = S.batchDate || S.date; const items = (S.lastBatch || []).map(id => findEntry(id, d)).filter(Boolean).map(({ e }) => { const f = foodById(e.fid), x = 100 / e.grams;
@@ -878,7 +900,7 @@
       case 'resave': saveRecipe(); break;
       case 'rerm': removeRecipe(); break;
       case 'voice': openVoice(); break;
-      case 'mic': if (!SR) break; if (rec) { try { rec.stop(); } catch (e) { } } else startRec(); break;
+      case 'mic': if (!SR) break; if (LS) LS.finish(); else startRec(); break;
       case 'vsend': submitText($('#vtext').value); break;
       case 'rdel': removeEntry(el.dataset.id, S.batchDate || S.date); el.closest('.entry').remove(); render(); if (!$('#rlist .entry')) closeSheet(); break;
       case 'unk': closeSheet(); S.tab = 'today'; render(); openSearch(null, el.dataset.q); break;
