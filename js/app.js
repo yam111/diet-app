@@ -94,15 +94,51 @@
   function setShared(items) { for (const x of SHARED) EXTMAP.delete(x.id); SHARED = items.map(sharedFood); for (const x of SHARED) EXTMAP.set(x.id, x); if (ALL.length) rebuildFoods(); }
   setShared(load('SG_SHARED', []));
   const fetchShared = (q = '') => fetch(SHARE_URL + q, { cache: 'no-store' }).then(r => r.json()).then(j => j && j.ok && Array.isArray(j.items) ? j.items : Promise.reject());
-  // 開 App、切回 App、打開搜尋都抓（離上次超過 10 秒）；搜尋開著時每 15 秒自動再抓
+  // 共用庫有兩個來源：Firebase（即時：別人一存，這邊幾秒內就自動出現）＋ Apps Script 試算表（舊版 App 還在用、也當備份）
+  // 兩邊合起來，同一筆以 Firebase 為準，自己還沒送出的排最後（最新）
+  let gasItems = null, fsItems = null;
+  const qRow = x => [x.barcode || '', x.name, x.g, x.liq, x.kcal, x.p, x.c, x.f, ...NXK.map(k => x[k] != null ? x[k] : null)];
+  function mergeShared() {
+    if (!gasItems && !fsItems) return;
+    const m = new Map(); for (const src of [gasItems || [], fsItems || [], load('SG_SHARE_Q', []).map(qRow)]) for (const r of src) m.set(shKey(r), r);
+    const items = [...m.values()]; if (JSON.stringify(items) === JSON.stringify(load('SG_SHARED', []))) return;
+    save('SG_SHARED', items); setShared(items); if ($('#results')) renderResults();
+  }
+  // 試算表：開 App、切回 App、打開搜尋時抓（離上次超過 10 秒）；Firebase 連不上時，搜尋開著每 15 秒再抓
   let shAt = 0;
   function refreshShared(gap = 10000) {
     if (Date.now() - shAt < gap || !navigator.onLine) return; shAt = Date.now();
-    fetchShared().then(items => { const before = JSON.stringify(load('SG_SHARED', [])), mine = load('SG_SHARE_Q', []).map(x => [x.barcode || '', x.name, x.g, x.liq, x.kcal, x.p, x.c, x.f, ...NXK.map(k => x[k] != null ? x[k] : null)]), ks = new Set(items.map(shKey)); items = items.concat(mine.filter(x => !ks.has(shKey(x)))); if (JSON.stringify(items) === before) return; save('SG_SHARED', items); setShared(items); if ($('#results')) renderResults(); }).catch(() => { shAt = 0; });
+    fetchShared().then(items => { gasItems = items; mergeShared(); }).catch(() => { shAt = 0; });
   }
   refreshShared();
-  // 搜尋開著的時候每 15 秒看一次有沒有人新增（名單沒變就不重畫，不打斷操作）；App 在背景不抓
-  setInterval(() => { if (!document.hidden && $('#results')) refreshShared(); }, 15000);
+  setInterval(() => { if (!fsItems && !document.hidden && $('#results')) refreshShared(); }, 15000);
+  // Firebase 即時同步（只讀寫 foods 這個集合：條碼、品名、營養數字，沒有個人資料）
+  const FB = { apiKey: 'AIzaSyAMGh5oV0HeFQ5OmwcScW7ChrQgo8AxTjc', authDomain: 'shiguang-d673f.firebaseapp.com', projectId: 'shiguang-d673f', appId: '1:1078307885203:web:89db8b9f36a1c3050e7d66' };
+  const FBJS = 'https://www.gstatic.com/firebasejs/12.18.0/';
+  let FS = null;
+  async function startLive() {
+    try {
+      const [{ initializeApp }, m] = await Promise.all([import(FBJS + 'firebase-app.js'), import(FBJS + 'firebase-firestore.js')]);
+      const db = m.getFirestore(initializeApp(FB)); FS = { m, db };
+      m.onSnapshot(m.collection(db, 'foods'), snap => { fsItems = snap.docs.map(d => d.data().r).filter(r => Array.isArray(r) && r[1]); mergeShared(); }, () => { fsItems = null; });
+      flushShare();
+    } catch (e) { FS = null; }
+  }
+  setTimeout(startLive, 300);
+  // 送出前整理成跟伺服器一樣的格式（Firebase 規則照同一套檢查，不合理的不送）
+  function cleanRow(d) {
+    const bc = String(d.barcode || '').replace(/\D/g, ''); if (bc && (bc.length < 8 || bc.length > 14)) return null;
+    const name = String(d.name || '').replace(/[\u0000-\u001f<>]/g, '').replace(/^[=+\-@]+/, '').trim().slice(0, 40); if (!name) return null;
+    const num = (v, lo, hi) => { v = Number(v); return isFinite(v) && v >= lo && v <= hi ? Math.round(v * 10) / 10 : NaN; };
+    const g = num(d.g, 1, 3000), k = num(d.kcal, 0, 950), p = num(d.p, 0, 100), c = num(d.c, 0, 100), f = num(d.f, 0, 100);
+    if ([g, k, p, c, f].some(isNaN) || p + c + f > 100.5) return null;
+    if (p + c + f > 0 && Math.abs(4 * p + 4 * c + 9 * f - k) > Math.max(40, k * 0.3)) return null;
+    const lim = { sug: c + 0.5, na: 40000, sat: f + 0.5, tr: f + 0.5, fib: 100 };
+    const nx = NXK.map(key => { if (d[key] == null || d[key] === '') return null; const v = Number(d[key]); if (!isFinite(v) || v < 0 || v > lim[key] || (key !== 'na' && v > 100)) return null; return key === 'na' ? Math.round(v) : Math.round(v * 100) / 100; });
+    if (nx[2] != null && nx[3] != null && nx[2] + nx[3] > f + 0.5) nx[3] = null;
+    return [bc, name, g, d.liq ? 1 : 0, k, p, c, f, ...nx];
+  }
+  const fsId = r => r[0] ? 'b' + r[0] : 'n' + nameKey(r[1]);
   // 回傳：只有條碼、品名、每份克數、每 100 克營養數字；沒網路就排著，下次打開再送
   // 有條碼的、自己新增的（不是改內建的、不跟內建同名）才分享
   const canShare = f => f && !f.recipe && (f.barcode || (/^c_/.test(f.id) && !FOODS.some(x => x.name === f.name)));
@@ -110,12 +146,24 @@
     if (!canShare(food)) return; const u = food.units[0];
     const it = { barcode: food.barcode || '', name: food.name, g: u.g, kcal: food.kcal, p: food.p, c: food.c, f: food.f, ...pickNx(food), liq: food.liq ? 1 : 0 };
     const q = load('SG_SHARE_Q', []).filter(x => shKey(x) !== shKey(it)); q.push(it); save('SG_SHARE_Q', q.slice(-50)); flushShare();
-    const arr = load('SG_SHARED', []).filter(x => shKey(x) !== shKey(it)); arr.push([it.barcode, it.name, it.g, it.liq, it.kcal, it.p, it.c, it.f, ...NXK.map(k => it[k] != null ? it[k] : null)]); save('SG_SHARED', arr); setShared(arr);
+    const arr = load('SG_SHARED', []).filter(x => shKey(x) !== shKey(it)); arr.push(qRow(it)); save('SG_SHARED', arr); setShared(arr);
   }
   let sharing = false;
+  // 每筆送兩邊：Firebase（即時給大家）＋試算表（舊版 App 讀得到、留紀錄）；Firebase 確定收到才從佇列拿掉（連不上 Firebase 就照舊只送試算表）
   async function flushShare() {
     if (sharing || !navigator.onLine) return; sharing = true;
-    try { for (const it of load('SG_SHARE_Q', [])) { await fetch(SHARE_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(it) }); const j = JSON.stringify(it); save('SG_SHARE_Q', load('SG_SHARE_Q', []).filter(x => JSON.stringify(x) !== j)); } } catch (e) { }
+    try {
+      for (const it of load('SG_SHARE_Q', [])) {
+        const r = cleanRow(it);
+        if (FS && r) {
+          const { m, db } = FS;
+          try { await Promise.race([m.setDoc(m.doc(db, 'foods', fsId(r)), { r, t: m.serverTimestamp() }), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 10000))]); }
+          catch (e) { if (!/permission/i.test(e.code || e.message || '')) throw e; }
+        }
+        await fetch(SHARE_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(it) });
+        const j = JSON.stringify(it); save('SG_SHARE_Q', load('SG_SHARE_Q', []).filter(x => JSON.stringify(x) !== j));
+      }
+    } catch (e) { }
     sharing = false;
   }
   setTimeout(flushShare, 3000); window.addEventListener('online', flushShare);
