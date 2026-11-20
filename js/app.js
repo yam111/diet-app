@@ -94,13 +94,15 @@
   function setShared(items) { for (const x of SHARED) EXTMAP.delete(x.id); SHARED = items.map(sharedFood); for (const x of SHARED) EXTMAP.set(x.id, x); if (ALL.length) rebuildFoods(); }
   setShared(load('SG_SHARED', []));
   const fetchShared = (q = '') => fetch(SHARE_URL + q, { cache: 'no-store' }).then(r => r.json()).then(j => j && j.ok && Array.isArray(j.items) ? j.items : Promise.reject());
-  // 開 App 抓一次；之後每次打開搜尋、離上次超過 1 分鐘就再抓（別人剛新增的，不用重開 App 也看得到）
+  // 開 App、切回 App、打開搜尋都抓（離上次超過 10 秒）；搜尋開著時每 15 秒自動再抓
   let shAt = 0;
-  function refreshShared() {
-    if (Date.now() - shAt < 60000 || !navigator.onLine) return; shAt = Date.now();
-    fetchShared().then(items => { const mine = load('SG_SHARE_Q', []).map(x => [x.barcode || '', x.name, x.g, x.liq, x.kcal, x.p, x.c, x.f, ...NXK.map(k => x[k] != null ? x[k] : null)]), ks = new Set(items.map(shKey)); items = items.concat(mine.filter(x => !ks.has(shKey(x)))); save('SG_SHARED', items); setShared(items); if ($('#results')) renderResults(); }).catch(() => { shAt = 0; });
+  function refreshShared(gap = 10000) {
+    if (Date.now() - shAt < gap || !navigator.onLine) return; shAt = Date.now();
+    fetchShared().then(items => { const before = JSON.stringify(load('SG_SHARED', [])), mine = load('SG_SHARE_Q', []).map(x => [x.barcode || '', x.name, x.g, x.liq, x.kcal, x.p, x.c, x.f, ...NXK.map(k => x[k] != null ? x[k] : null)]), ks = new Set(items.map(shKey)); items = items.concat(mine.filter(x => !ks.has(shKey(x)))); if (JSON.stringify(items) === before) return; save('SG_SHARED', items); setShared(items); if ($('#results')) renderResults(); }).catch(() => { shAt = 0; });
   }
   refreshShared();
+  // 搜尋開著的時候每 15 秒看一次有沒有人新增（名單沒變就不重畫，不打斷操作）；App 在背景不抓
+  setInterval(() => { if (!document.hidden && $('#results')) refreshShared(); }, 15000);
   // 回傳：只有條碼、品名、每份克數、每 100 克營養數字；沒網路就排著，下次打開再送
   // 有條碼的、自己新增的（不是改內建的、不跟內建同名）才分享
   const canShare = f => f && !f.recipe && (f.barcode || (/^c_/.test(f.id) && !FOODS.some(x => x.name === f.name)));
