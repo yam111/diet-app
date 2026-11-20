@@ -31,8 +31,7 @@ function clean_(d) {
   const g = num(d.g, 1, 3000), k = num(d.kcal, 0, 950), p = num(d.p, 0, 100), c = num(d.c, 0, 100), f = num(d.f, 0, 100);
   if ([g, k, p, c, f].some(isNaN)) return null;
   if (p + c + f > 100.5) return null;
-  // 有填三大營養素的話，算出來的熱量要跟填的熱量差不多（膳食纖維、糖醇會有點差，留寬一點）
-  if (p + c + f > 0 && Math.abs(4 * p + 4 * c + 9 * f - k) > Math.max(40, k * 0.3)) return null;
+  // 熱量跟三大營養素不用對得起來（喉糖的糖醇、膳食纖維會不一樣），包裝怎麼寫就收
   // 其他營養素：數字怪的就當沒填（不擋整筆）
   const lim = { sug: c + 0.5, na: 40000, sat: f + 0.5, tr: f + 0.5, fib: 100 };
   const nx = NXK.map(key => { if (d[key] == null || d[key] === '') return ''; const v = Number(d[key]); if (!isFinite(v) || v < 0 || v > lim[key]) return ''; return key === 'na' ? Math.round(v) : Math.round(v * 100) / 100; });

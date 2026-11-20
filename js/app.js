@@ -132,12 +132,14 @@
     cleanWhy = ''; const no = w => { cleanWhy = w; return null; };
     const bc = String(d.barcode || '').replace(/\D/g, ''); if (bc && (bc.length < 8 || bc.length > 14)) return no('條碼長度不對');
     const name = String(d.name || '').replace(/[\u0000-\u001f<>]/g, '').replace(/^[=+\-@]+/, '').trim().slice(0, 40); if (!name) return no('名稱是空的');
-    const num = (v, lo, hi) => { v = Number(v); return isFinite(v) && v >= lo && v <= hi ? Math.round(v * 10) / 10 : NaN; };
     // 每份不到 1 克（調味料常見 0.5 克）：伺服器只收 1 克以上，送 1 克（每 100 克的數字不變）
-    const g = num(Math.max(1, Number(d.g)), 1, 3000), k = num(d.kcal, 0, 950), p = num(d.p, 0, 100), c = num(d.c, 0, 100), f = num(d.f, 0, 100);
-    if (isNaN(g)) return no('每份重量不合理（要 1～3000）'); if (isNaN(k)) return no('熱量太高（每 100 克超過 950 大卡），可能每份重量填錯');
-    if ([p, c, f].some(isNaN) || p + c + f > 100.5) return no('蛋白質＋碳水＋脂肪比每份重量還重，可能每份重量填錯');
-    if (p + c + f > 0 && Math.abs(4 * p + 4 * c + 9 * f - k) > Math.max(40, k * 0.3)) return no('熱量跟蛋白質／碳水／脂肪算起來差太多，請對一下包裝');
+    // 包裝怎麼寫就怎麼送，只把超出範圍的數字收進範圍：喉糖、糖果的糖醇、膳食纖維會讓熱量跟三大營養素算不起來，那是正常的
+    // 每份很小（0.5 克）時四捨五入會讓三大營養素加起來超過 100 克 → 等比例縮回 100
+    const cl = (v, lo, hi) => { v = Number(v); return isFinite(v) ? Math.min(hi, Math.max(lo, v)) : NaN; };
+    const g = r1(cl(d.g || 1, 1, 3000)), k = r1(cl(d.kcal, 0, 950)); let p = cl(d.p, 0, 100), c = cl(d.c, 0, 100), f = cl(d.f, 0, 100);
+    if ([g, k, p, c, f].some(isNaN)) return no('數字沒填好');
+    const sum = p + c + f; if (sum > 100) { p = p * 100 / sum; c = c * 100 / sum; f = f * 100 / sum; }
+    const fl = v => Math.floor(v * 10) / 10; p = fl(p); c = fl(c); f = fl(f);
     const lim = { sug: c + 0.5, na: 40000, sat: f + 0.5, tr: f + 0.5, fib: 100 };
     const nx = NXK.map(key => { if (d[key] == null || d[key] === '') return null; const v = Number(d[key]); if (!isFinite(v) || v < 0 || v > lim[key] || (key !== 'na' && v > 100)) return null; return key === 'na' ? Math.round(v) : Math.round(v * 100) / 100; });
     if (nx[2] != null && nx[3] != null && nx[2] + nx[3] > f + 0.5) nx[3] = null;
@@ -169,7 +171,7 @@
           try { await Promise.race([m.setDoc(m.doc(db, 'foods', fsId(r)), { r, t: m.serverTimestamp() }), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 10000))]); }
           catch (e) { if (!/permission/i.test(e.code || e.message || '')) throw e; }
         }
-        await fetch(SHARE_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ ...it, g: Math.max(1, Number(it.g) || 0) }) });
+        await fetch(SHARE_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(r ? { barcode: r[0], name: r[1], g: r[2], liq: r[3], kcal: r[4], p: r[5], c: r[6], f: r[7], ...Object.fromEntries(NXK.map((k, i) => [k, r[8 + i]])) } : it) });
         const j = JSON.stringify(it); save('SG_SHARE_Q', load('SG_SHARE_Q', []).filter(x => JSON.stringify(x) !== j));
       }
     } catch (e) { }
