@@ -392,13 +392,14 @@
   }
 
   // ---------- 自訂食物 ----------
+  let NFNET = false; // 正在對網路條碼資料
   let NFBC = ''; // 正在新增的自訂食物的條碼（掃了查不到時）
   let NFED = null; // 正在修改的自訂食物（掃到的開放資料不準、自己填錯了）
   let NFLIQ = false; // 這個自訂食物是液體（每份填毫升）
-  function openNewFood(name = '', barcode = '', edit = null) {
-    NFBC = barcode; NFED = edit; NFLIQ = NL.isLiquid(edit || { name });
+  function openNewFood(name = '', barcode = '', edit = null, o = {}) {
+    NFBC = barcode; NFED = edit; NFLIQ = edit && edit.liq != null ? !!edit.liq : NL.isLiquid(edit || { name });
     const u = edit && edit.units[0], per = v => edit ? r1(v * u.g / 100) : '';
-    sheet(`${barcode && !edit ? '<button class="backbtn" data-act="scan">‹ 重新掃描</button>' : ''}<h2>${edit ? '修改自訂食物' : '新增自訂食物'}</h2><div class="sub">${edit ? '照包裝上的「每一份量」營養標示改。之後記的都用新的數字，已經記過的紀錄不會變。' : barcode ? `條碼 ${esc(barcode)} 還沒有資料。照包裝背面的營養標示填一次，下次掃這個條碼就直接帶出來。` : '照包裝上的「每一份量」營養標示填就可以'}</div>
+    sheet(`${(barcode && !edit) || o.net ? '<button class="backbtn" data-act="scan">‹ 重新掃描</button>' : ''}<h2>${o.net ? '對一下包裝' : edit ? '修改自訂食物' : '新增自訂食物'}</h2><div class="sub">${o.net ? `網路上找到這個條碼（Open Food Facts，大家上傳的資料，可能是舊包裝或打錯）。請跟包裝背面的「營養標示」對一下，不一樣就照包裝改。${o.net === 'nosv' ? '網路資料沒寫每份多重，下面先用「每 100 克」，可以對包裝的「每100公克」那欄，或改成「每一份量」。' : ''}存好之後，掃這個條碼都用你對過的數字。` : edit ? '照包裝上的「每一份量」營養標示改。之後記的都用新的數字，已經記過的紀錄不會變。' : barcode ? `條碼 ${esc(barcode)} 還沒有資料。照包裝背面的營養標示填一次，下次掃這個條碼就直接帶出來。` : '照包裝上的「每一份量」營養標示填就可以'}</div>
       <div class="field"><label>名稱</label><input id="nf-n" type="text" style="font-family:var(--sans);font-size:16px;width:190px" value="${esc(edit ? edit.name : name)}" placeholder="例如：公司樓下雞肉飯"></div>
       <div class="seg sm" id="nf-liq" style="margin:4px 0 2px"><button data-act="nfliq" data-v="0" class="${NFLIQ ? '' : 'on'}">吃的（克）</button><button data-act="nfliq" data-v="1" class="${NFLIQ ? 'on' : ''}">喝的（毫升）</button></div>
       <div class="field"><label id="nf-gl">${NFLIQ ? '每份容量' : '每份重量'}</label><input id="nf-g" type="number" inputmode="decimal" value="${edit ? u.g : 100}"><span class="u" id="nf-gu">${NFLIQ ? '毫升' : '克'}</span></div>
@@ -407,7 +408,8 @@
       <div class="field"><label>碳水化合物</label><input id="nf-c" type="number" inputmode="decimal" placeholder="0" value="${per(edit && edit.c)}"><span class="u">克</span></div>
       <div class="field"><label>脂肪</label><input id="nf-f" type="number" inputmode="decimal" placeholder="0" value="${per(edit && edit.f)}"><span class="u">克</span></div>
       <p class="note">熱量沒填的話，會用三大營養素自動算（蛋白質、碳水每克 4 大卡，脂肪每克 9 大卡）。</p>
-      ${edit ? `<div class="btnrow"><button class="btn danger" style="flex:.6" data-act="cfdel">刪除</button><button class="btn" data-act="nfsave">儲存</button></div>` : '<button class="btn" data-act="nfsave">儲存並加入紀錄</button>'}`);
+      ${o.net ? '<button class="btn" data-act="nfsave">對好了，加入紀錄</button>' : edit ? `<div class="btnrow"><button class="btn danger" style="flex:.6" data-act="cfdel">刪除</button><button class="btn" data-act="nfsave">儲存</button></div>` : '<button class="btn" data-act="nfsave">儲存並加入紀錄</button>'}`);
+    NFNET = !!o.net;
   }
   function saveNewFood() {
     const v = id => parseFloat($(id).value) || 0; const name = $('#nf-n').value.trim(); const g = v('#nf-g');
@@ -422,7 +424,7 @@
     S.custom = S.custom.filter(o => o.id !== food.id && o.name !== name && !(bc && o.barcode === bc));
     if (at >= 0) S.custom.splice(Math.min(at, S.custom.length), 0, food); else S.custom.unshift(food);
     save('SG_CUSTOM', S.custom); rebuildFoods(); NFBC = ''; NFED = null;
-    if (ed) toast('已更新「' + name + '」');
+    if (ed && !NFNET) toast('已更新「' + name + '」'); NFNET = false;
     openQty(food, { fromSearch: true });
   }
   function deleteCustom(id) {
@@ -481,7 +483,8 @@
         const sq = parseFloat(p.serving_quantity);
         const food = { id: 'c_' + uid(), name, alias: [], kcal: r1(k), p: r1(+n.proteins_100g || 0), c: r1(+n.carbohydrates_100g || 0), f: r1(+n.fat_100g || 0), units: [{ n: '份', g: sq > 0 && sq < 2000 ? r1(sq) : 100 }], cat: '條碼', barcode: code, liq: /\d\s*(ml|cl|l|毫升|公升|cc)\b/i.test((p.serving_size || '') + ' ' + (p.quantity || '')) || NL.isLiquid({ name }) ? 1 : 0 };
         S.custom = S.custom.filter(o => o.barcode !== code); S.custom.unshift(food); save('SG_CUSTOM', S.custom); rebuildFoods();
-        toast('找到了（Open Food Facts 開放資料，可以點進去對一下包裝）'); return openQty(food, { fromSearch: true });
+        // 網路資料是大家上傳的，常是舊包裝、打錯或沒寫每份多重：先讓他照包裝對一次，存下來之後掃這個條碼就用對過的數字
+        return openNewFood('', '', food, { net: !(sq > 0 && sq < 2000) ? 'nosv' : 'sv' });
       }
     } catch (e) { if (!navigator.onLine) toast('沒有網路，先照包裝標示填一次'); }
     openNewFood('', code);
