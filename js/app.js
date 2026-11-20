@@ -126,13 +126,17 @@
   }
   setTimeout(startLive, 300);
   // 送出前整理成跟伺服器一樣的格式（Firebase 規則照同一套檢查，不合理的不送）
+  // 不合格時 cleanWhy 記原因（存的時候告訴使用者為什麼沒分享出去）
+  let cleanWhy = '';
   function cleanRow(d) {
-    const bc = String(d.barcode || '').replace(/\D/g, ''); if (bc && (bc.length < 8 || bc.length > 14)) return null;
-    const name = String(d.name || '').replace(/[\u0000-\u001f<>]/g, '').replace(/^[=+\-@]+/, '').trim().slice(0, 40); if (!name) return null;
+    cleanWhy = ''; const no = w => { cleanWhy = w; return null; };
+    const bc = String(d.barcode || '').replace(/\D/g, ''); if (bc && (bc.length < 8 || bc.length > 14)) return no('條碼長度不對');
+    const name = String(d.name || '').replace(/[\u0000-\u001f<>]/g, '').replace(/^[=+\-@]+/, '').trim().slice(0, 40); if (!name) return no('名稱是空的');
     const num = (v, lo, hi) => { v = Number(v); return isFinite(v) && v >= lo && v <= hi ? Math.round(v * 10) / 10 : NaN; };
     const g = num(d.g, 1, 3000), k = num(d.kcal, 0, 950), p = num(d.p, 0, 100), c = num(d.c, 0, 100), f = num(d.f, 0, 100);
-    if ([g, k, p, c, f].some(isNaN) || p + c + f > 100.5) return null;
-    if (p + c + f > 0 && Math.abs(4 * p + 4 * c + 9 * f - k) > Math.max(40, k * 0.3)) return null;
+    if (isNaN(g)) return no('每份重量不合理（要 1～3000）'); if (isNaN(k)) return no('熱量太高（每 100 克超過 950 大卡），可能每份重量填錯');
+    if ([p, c, f].some(isNaN) || p + c + f > 100.5) return no('蛋白質＋碳水＋脂肪比每份重量還重，可能每份重量填錯');
+    if (p + c + f > 0 && Math.abs(4 * p + 4 * c + 9 * f - k) > Math.max(40, k * 0.3)) return no('熱量跟蛋白質／碳水／脂肪算起來差太多，請對一下包裝');
     const lim = { sug: c + 0.5, na: 40000, sat: f + 0.5, tr: f + 0.5, fib: 100 };
     const nx = NXK.map(key => { if (d[key] == null || d[key] === '') return null; const v = Number(d[key]); if (!isFinite(v) || v < 0 || v > lim[key] || (key !== 'na' && v > 100)) return null; return key === 'na' ? Math.round(v) : Math.round(v * 100) / 100; });
     if (nx[2] != null && nx[3] != null && nx[2] + nx[3] > f + 0.5) nx[3] = null;
@@ -141,12 +145,16 @@
   const fsId = r => r[0] ? 'b' + r[0] : 'n' + nameKey(r[1]);
   // 回傳：只有條碼、品名、每份克數、每 100 克營養數字；沒網路就排著，下次打開再送
   // 有條碼的、自己新增的（不是改內建的、不跟內建同名）才分享
-  const canShare = f => f && !f.recipe && (f.barcode || (/^c_/.test(f.id) && !FOODS.some(x => x.name === f.name)));
+  // 沒條碼的：自己新增的、或修改大家新增的（s_n 開頭）才分享；跟內建同名的不分享
+  const shareNo = f => !f || f.recipe ? '-' : f.barcode ? '' : !/^(c_|s_n)/.test(f.id) ? '-' : FOODS.some(x => x.name === f.name) ? '跟內建食物同名（改個名字就會分享）' : '';
+  // 回傳沒分享的原因（空字串＝有送出；'-'＝本來就不分享，不用講）
   function shareFood(food) {
-    if (!canShare(food)) return; const u = food.units[0];
+    const no = shareNo(food); if (no) return no; const u = food.units[0];
     const it = { barcode: food.barcode || '', name: food.name, g: u.g, kcal: food.kcal, p: food.p, c: food.c, f: food.f, ...pickNx(food), liq: food.liq ? 1 : 0 };
+    if (!cleanRow(it)) return cleanWhy;
     const q = load('SG_SHARE_Q', []).filter(x => shKey(x) !== shKey(it)); q.push(it); save('SG_SHARE_Q', q.slice(-50)); flushShare();
     const arr = load('SG_SHARED', []).filter(x => shKey(x) !== shKey(it)); arr.push(qRow(it)); save('SG_SHARED', arr); setShared(arr);
+    return '';
   }
   let sharing = false;
   // 每筆送兩邊：Firebase（即時給大家）＋試算表（舊版 App 讀得到、留紀錄）；Firebase 確定收到才從佇列拿掉（連不上 Firebase 就照舊只送試算表）
@@ -557,7 +565,8 @@
     const at = ed ? S.custom.findIndex(o => o.id === ed.id) : -1;
     S.custom = S.custom.filter(o => o.id !== food.id && o.name !== name && !(bc && o.barcode === bc));
     if (at >= 0) S.custom.splice(Math.min(at, S.custom.length), 0, food); else S.custom.unshift(food);
-    save('SG_CUSTOM', S.custom); rebuildFoods(); NFBC = ''; NFED = null; shareFood(food);
+    save('SG_CUSTOM', S.custom); rebuildFoods(); NFBC = ''; NFED = null; const shWhy = shareFood(food);
+    if (shWhy && shWhy !== '-') setTimeout(() => toast('只存在你的手機、沒分享給別人：' + shWhy), 1800);
     if (ed && !NFNET) toast('已更新「' + name + '」'); NFNET = false;
     const o = NFO; NFO = {};
     if (o.from === 'me') { closeSheet(); if (!ed) toast('已新增「' + name + '」'); return render(); }
