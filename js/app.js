@@ -65,6 +65,7 @@
     EXT = a.map(([id, name, al, k, p, c, f, cat, st]) => ({ id: 't_' + id, name, alias: al ? al.split(',') : [], kcal: k, p, c, f, units: [{ n: '份', g: 100 }], cat, st, ext: 1 }));
     EXTMAP = new Map(EXT.map(x => [x.id, x]));
     for (const x of BEXT) EXTMAP.set(x.id, x);
+    for (const x of SHARED) EXTMAP.set(x.id, x);
     if ($('#results')) renderResults();
   }).catch(() => { });
   // 超商・連鎖店品項（全家官網營養標示等，約上千項，開啟後背景載入，只用在搜尋）
@@ -75,6 +76,28 @@
     NL.setBrandFoods(BEXT); // 語音／打字講了店名（全家、7-11…）也用這份
     if ($('#results')) renderResults();
   }).catch(() => { });
+  // 共用條碼食物庫：大家掃條碼、照包裝對過存好的食物（Google 試算表＋Apps Script），存一份在手機離線也能用
+  const SHARE_URL = 'https://script.google.com/macros/s/AKfycbwcirBbJG-oYsu2tSQvRHRduby5zpEmKcuJvyp_kbI7K8zBBCpOamOy-WdIy8cCEHQY0w/exec';
+  const sharedFood = ([bc, name, g, liq, k, p, c, f]) => ({ id: 's_' + bc, name, alias: [], kcal: k, p, c, f, units: [{ n: '份', g: g > 0 ? g : 100 }], cat: '條碼', st: '大家掃的', barcode: bc, liq: liq ? 1 : 0, ext: 1 });
+  let SHARED = [];
+  function setShared(items) { for (const x of SHARED) EXTMAP.delete(x.id); SHARED = items.map(sharedFood); for (const x of SHARED) EXTMAP.set(x.id, x); }
+  setShared(load('SG_SHARED', []));
+  const fetchShared = (q = '') => fetch(SHARE_URL + q, { cache: 'no-store' }).then(r => r.json()).then(j => j && j.ok && Array.isArray(j.items) ? j.items : Promise.reject());
+  fetchShared().then(items => { save('SG_SHARED', items); setShared(items); if ($('#results')) renderResults(); }).catch(() => { });
+  // 回傳：只有條碼、品名、每份克數、每 100 克營養數字；沒網路就排著，下次打開再送
+  function shareFood(food) {
+    if (!food.barcode) return; const u = food.units[0];
+    const it = { barcode: food.barcode, name: food.name, g: u.g, kcal: food.kcal, p: food.p, c: food.c, f: food.f, liq: food.liq ? 1 : 0 };
+    const q = load('SG_SHARE_Q', []).filter(x => x.barcode !== it.barcode); q.push(it); save('SG_SHARE_Q', q.slice(-50)); flushShare();
+    const arr = load('SG_SHARED', []).filter(x => x[0] !== it.barcode); arr.push([it.barcode, it.name, it.g, it.liq, it.kcal, it.p, it.c, it.f]); save('SG_SHARED', arr); setShared(arr);
+  }
+  let sharing = false;
+  async function flushShare() {
+    if (sharing || !navigator.onLine) return; sharing = true;
+    try { for (const it of load('SG_SHARE_Q', [])) { await fetch(SHARE_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(it) }); const j = JSON.stringify(it); save('SG_SHARE_Q', load('SG_SHARE_Q', []).filter(x => JSON.stringify(x) !== j)); } } catch (e) { }
+    sharing = false;
+  }
+  setTimeout(flushShare, 3000); window.addEventListener('online', flushShare);
   rebuildFoods();
 
   // ---------- 計算 ----------
@@ -319,8 +342,9 @@
     const box = $('#results'); if (!box) return; const q = S.q.trim();
     let html = '';
     if (q) {
-      const ov = new Set(S.custom.map(o => o.id)), res = NL.search(q, 50), ext = NL.searchList(q, EXT, 60).filter(f => !ov.has(f.id)), seen = new Set(res.map(f => f.name)), br = NL.searchBrand(q, BEXT, 60).filter(f => !seen.has(f.name) && !ov.has(f.id));
-      html = res.length ? `<div class="sec">${res.length} 筆結果 · 記到${mealName(S.meal)}</div>` + res.map(f => f.recipe ? recipeRow(S.recipes.find(x => x.id === f.id)) : foodRow(f, q)).join('') : ext.length || br.length ? '' : `<div class="nores">找不到「${esc(q)}」</div>`;
+      const ov = new Set(S.custom.map(o => o.id)), res = NL.search(q, 50), ext = NL.searchList(q, EXT, 60).filter(f => !ov.has(f.id)), seen = new Set(res.map(f => f.name)), br = NL.searchBrand(q, BEXT, 60).filter(f => !seen.has(f.name) && !ov.has(f.id)), mybc = new Set(S.custom.map(o => o.barcode).filter(Boolean)), sh = NL.searchList(q, SHARED, 30).filter(f => !mybc.has(f.barcode) && !ov.has(f.id));
+      html = res.length ? `<div class="sec">${res.length} 筆結果 · 記到${mealName(S.meal)}</div>` + res.map(f => f.recipe ? recipeRow(S.recipes.find(x => x.id === f.id)) : foodRow(f, q)).join('') : ext.length || br.length || sh.length ? '' : `<div class="nores">找不到「${esc(q)}」</div>`;
+      if (sh.length) html += `<div class="sec">大家掃過的包裝食品 · ${sh.length} 筆<em>照包裝營養標示填的</em></div>` + sh.map(f => foodRow(f, q)).join('');
       if (br.length) html += `<div class="sec">超商・連鎖店 · ${br.length >= 60 ? '60+' : br.length} 筆<em>每筆標明官網標示或估算</em></div>` + br.map(f => foodRow(f, q)).join('');
       if (ext.length) html += `<div class="sec">衛福部食品營養成分資料庫 · ${ext.length >= 60 ? '60+' : ext.length} 筆<em>每 100 克／毫升</em></div>` + ext.map(f => foodRow(f, q)).join('');
       html += `<button class="btn ghost" style="margin-top:18px" data-act="newfood">＋ 新增自訂食物${res.length || ext.length ? '' : '「' + esc(q) + '」'}</button>`;
@@ -408,7 +432,7 @@
     NFBC = barcode; NFED = edit; NFO = o; NFLIQ = edit && edit.liq != null ? !!edit.liq : NL.isLiquid(edit || { name });
     const u = edit && edit.units[0], per = v => edit ? r1(v * u.g / 100) : '';
     const mine = edit && S.custom.some(x => x.id === edit.id), base = edit && (FOODS.find(x => x.id === edit.id) || EXTMAP.get(edit.id));
-    sheet(`${(barcode && !edit) || o.net ? '<button class="backbtn" data-act="scan">‹ 重新掃描</button>' : o.back ? '<button class="backbtn" data-act="nfback">‹ 返回</button>' : ''}<h2>${o.net ? '對一下包裝' : edit ? '修改食物資料' : '新增自訂食物'}</h2><div class="sub">${o.net ? `網路上找到這個條碼（Open Food Facts，大家上傳的資料，可能是舊包裝或打錯）。請跟包裝背面的「營養標示」對一下，不一樣就照包裝改。${o.net === 'nosv' ? '網路資料沒寫每份多重，下面先用「每 100 克」，可以對包裝的「每100公克」那欄，或改成「每一份量」。' : ''}存好之後，掃這個條碼都用你對過的數字。` : edit ? (base && !mine ? '這是內建的數字（參考衛福部資料或一般做法估算）。照包裝或你吃的那家改，之後記的、說話記的都用你的數字；隨時可以還原。' : '照包裝上的「每一份量」營養標示改。') + '已經記過的紀錄不會變，要套新數字就點那一筆再按儲存。' : barcode ? `條碼 ${esc(barcode)} 還沒有資料。照包裝背面的營養標示填一次，下次掃這個條碼就直接帶出來。` : '照包裝上的「每一份量」營養標示填就可以'}</div>
+    sheet(`${(barcode && !edit) || o.net ? '<button class="backbtn" data-act="scan">‹ 重新掃描</button>' : o.back ? '<button class="backbtn" data-act="nfback">‹ 返回</button>' : ''}<h2>${o.net ? '對一下包裝' : edit ? '修改食物資料' : '新增自訂食物'}</h2><div class="sub">${o.net ? `網路上找到這個條碼（Open Food Facts，大家上傳的資料，可能是舊包裝或打錯）。請跟包裝背面的「營養標示」對一下，不一樣就照包裝改。${o.net === 'nosv' ? '網路資料沒寫每份多重，下面先用「每 100 克」，可以對包裝的「每100公克」那欄，或改成「每一份量」。' : ''}存好之後，掃這個條碼都用你對過的數字。` : edit ? (String(edit.id).startsWith('s_') && !mine ? '這是其他人掃這個條碼時照包裝填的數字。跟包裝對一下，不一樣就照包裝改。' : base && !mine ? '這是內建的數字（參考衛福部資料或一般做法估算）。照包裝或你吃的那家改，之後記的、說話記的都用你的數字；隨時可以還原。' : '照包裝上的「每一份量」營養標示改。') + '已經記過的紀錄不會變，要套新數字就點那一筆再按儲存。' : barcode ? `條碼 ${esc(barcode)} 還沒有資料。照包裝背面的營養標示填一次，下次掃這個條碼就直接帶出來。` : '照包裝上的「每一份量」營養標示填就可以'}${barcode || o.net || (edit && edit.barcode) ? '<p class="note" style="margin-top:6px">有條碼的食物存好後會分享到共用食物庫，其他人掃同一個條碼就查得到（只分享條碼、品名和營養數字）。</p>' : ''}</div>
       ${SR ? `<button class="nfmic" id="nfmic" data-act="nfmic">${MIC}<span>用講的填</span></button><div class="nfheard" id="nfheard">例：「每份 60 克，熱量 250 大卡，蛋白質 8 克，碳水 30，脂肪 11」</div>` : ''}
       <div class="field"><label>名稱</label><input id="nf-n" type="text" style="font-family:var(--sans);font-size:16px;width:190px" value="${esc(edit ? edit.name : name)}" placeholder="例如：公司樓下雞肉飯"></div>
       <div class="seg sm" id="nf-liq" style="margin:4px 0 2px"><button data-act="nfliq" data-v="0" class="${NFLIQ ? '' : 'on'}">吃的（克）</button><button data-act="nfliq" data-v="1" class="${NFLIQ ? 'on' : ''}">喝的（毫升）</button></div>
@@ -433,7 +457,7 @@
     const at = ed ? S.custom.findIndex(o => o.id === ed.id) : -1;
     S.custom = S.custom.filter(o => o.id !== food.id && o.name !== name && !(bc && o.barcode === bc));
     if (at >= 0) S.custom.splice(Math.min(at, S.custom.length), 0, food); else S.custom.unshift(food);
-    save('SG_CUSTOM', S.custom); rebuildFoods(); NFBC = ''; NFED = null;
+    save('SG_CUSTOM', S.custom); rebuildFoods(); NFBC = ''; NFED = null; if (bc) shareFood(food);
     if (ed && !NFNET) toast('已更新「' + name + '」'); NFNET = false;
     const o = NFO; NFO = {};
     if (o.from === 'me') { closeSheet(); if (!ed) toast('已新增「' + name + '」'); return render(); }
@@ -488,6 +512,11 @@
     code = String(code || '').replace(/\D/g, ''); if (code.length < 8) return toast('條碼是 8～13 位數字');
     const mine = S.custom.find(f => f.barcode === code); if (mine) return openQty(mine, { fromSearch: true });
     const m = $('#scmsg'); if (m) m.textContent = '查詢條碼 ' + code + '…';
+    // 共用條碼庫：先問最新的（別人剛掃過的也找得到），沒網路或太慢就用手機裡存的那份
+    let sh = null;
+    try { const ac = new AbortController(), t = setTimeout(() => ac.abort(), 5000); const items = await fetch(SHARE_URL + '?bc=' + code, { cache: 'no-store', signal: ac.signal }).then(r => r.json()).then(j => j && j.ok ? j.items : null); clearTimeout(t); if (items) sh = items[0] ? sharedFood(items[0]) : false; } catch (e) { }
+    if (sh == null) sh = SHARED.find(f => f.barcode === code);
+    if (sh) { EXTMAP.set(sh.id, sh); return openQty(sh, { fromSearch: true }); }
     try {
       const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,product_name_zh,brands,nutriments,serving_quantity,serving_size,quantity`);
       const j = await r.json(), p = j.product || {}, n = p.nutriments || {};
