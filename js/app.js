@@ -376,7 +376,7 @@
   function qGrams() { const a = parseFloat(Q.amount) || 0; return Q.unit < 0 ? a : a * Q.food.units[Q.unit].g; }
   function drawQty() {
     const f = Q.food;
-    sheet(`${Q.fromSearch ? '<button class="backbtn" data-act="sback">‹ 回搜尋</button>' : Q.fromVoice && LR ? '<button class="backbtn" data-act="rback">‹ 回剛剛記的</button>' : ''}<h2>${esc(f.name)}</h2><div class="sub">每 100 ${gu(f)} ${f.kcal} 大卡 · 蛋白質 ${f.p}・碳水 ${f.c}・脂肪 ${f.f}</div>
+    sheet(`${Q.fromSearch ? '<button class="backbtn" data-act="sback">‹ 回搜尋</button>' : Q.fromVoice && LR ? '<button class="backbtn" data-act="vback">‹ 回剛剛記的</button>' : ''}<h2>${esc(f.name)}</h2><div class="sub">每 100 ${gu(f)} ${f.kcal} 大卡 · 蛋白質 ${f.p}・碳水 ${f.c}・脂肪 ${f.f}</div>
       <div class="chips" style="margin:0 -20px 6px;padding:0 20px">${f.units.map((u, i) => `<button class="chip ${Q.unit === i ? 'on' : ''}" data-act="qunit" data-i="${i}">${esc(u.n)}</button>`).join('')}<button class="chip ${Q.unit < 0 ? 'on' : ''}" data-act="qunit" data-i="-1">${gu(f)}</button></div>
       <div class="qbig"><input id="qamt" type="number" inputmode="decimal" step="any" value="${Q.amount}"><span>${Q.unit < 0 ? gu(f) : esc(f.units[Q.unit].n)}</span></div>
       <div class="qg" id="qg"></div>
@@ -738,7 +738,7 @@
     sheet(`<div class="result">${added.length ? `<div class="okmark"><svg viewBox="0 0 24 24"><path d="m5 12.500 4.500 4.500L19 7.500"/></svg></div>
       <h2 style="text-align:center">已記錄 ${added.length} 項 · ${sum} 大卡</h2><div class="sub" style="text-align:center">記到${S.date !== today() ? dateLabel(S.date) + ' 的' : ''}${meals}「${esc(text)}」</div>`
       : `<h2>沒有認出食物</h2><div class="sub">「${esc(text)}」</div>`}
-      <div id="rlist">${added.map(a => `<div class="entry" data-rid="${a.e.id}"><span class="n" data-act="redit" data-id="${a.e.id}"><b>${esc(a.e.name)}${a.it.est ? '<span class="badge">估算份量</span>' : ''}</b><small>${mealName(a.it.meal)} · ${esc(eLabel(a.e))}${isAmt(a.e.label) ? '' : ' · ' + r0(a.e.grams) + ' ' + eu(a.e)}</small></span><span class="k">${a.e.kcal}<small>蛋 ${r0(a.e.p)} · 碳 ${r0(a.e.c)} · 脂 ${r0(a.e.f)}</small></span><button class="x" data-act="rdel" data-id="${a.e.id}" aria-label="移除">×</button></div>`).join('')}</div>
+      <div id="rlist">${added.map(a => `<div class="entry" data-rid="${a.e.id}"><span class="n" data-act="vredit" data-id="${a.e.id}"><b>${esc(a.e.name)}${a.it.est ? '<span class="badge">估算份量</span>' : ''}</b><small>${mealName(a.it.meal)} · ${esc(eLabel(a.e))}${isAmt(a.e.label) ? '' : ' · ' + r0(a.e.grams) + ' ' + eu(a.e)}</small></span><span class="k">${a.e.kcal}<small>蛋 ${r0(a.e.p)} · 碳 ${r0(a.e.c)} · 脂 ${r0(a.e.f)}</small></span><button class="x" data-act="rdel" data-id="${a.e.id}" aria-label="移除">×</button></div>`).join('')}</div>
       ${unknown.length ? `<div class="unk">這幾個資料庫裡找不到，點一下可以搜尋或自己新增：<br>${unknown.map(u => `<button data-act="unk" data-q="${esc(u)}">${esc(u)}</button>`).join('')}</div>` : ''}
       <div class="btnrow" style="margin-top:16px"><button class="btn ghost" data-act="voice">再說一次</button><button class="btn" data-act="close">完成</button></div>
       ${added.length > 1 ? '<button class="linkbtn" data-act="rfrom">把這幾樣存成食譜，下次說菜名就好</button>' : ''}
@@ -902,8 +902,8 @@
         const d = S.date; toast(`${ne.name} ${ne.label} 已記到${mealName(m)}`, () => { removeEntry(ne.id, d); renderResults(); }); break; }
       case 'copymeal': { const d = S.date, r = copyMeal(el.dataset.meal, d); if (!r) break; render();
         toast(`已記上${shortDate(r.pm.k) === '昨天' ? '昨天' : ' ' + shortDate(r.pm.k) + ' '}的${mealName(el.dataset.meal)} ${r.added.length} 樣`, () => { r.added.forEach(e => removeEntry(e.id, d)); render(); }); break; }
-      case 'edit': case 'redit': { const f = findEntry(el.dataset.id); if (!f) break; const e = f.e; const food = foodById(e.fid) || { id: e.fid, name: e.name, alias: [], kcal: e.kcal / e.grams * 100, p: e.p / e.grams * 100, c: e.c / e.grams * 100, f: e.f / e.grams * 100, units: [{ n: '份', g: e.grams }] }; openQty(food, { meal: f.meal, editId: e.id, entry: e, fromVoice: a === 'redit' }); break; }
-      case 'rback': if (LR) drawResult(LR.text, LR.added, LR.unknown); else closeSheet(); break;
+      case 'edit': case 'vredit': { const f = findEntry(el.dataset.id); if (!f) break; const e = f.e; const food = foodById(e.fid) || { id: e.fid, name: e.name, alias: [], kcal: e.kcal / e.grams * 100, p: e.p / e.grams * 100, c: e.c / e.grams * 100, f: e.f / e.grams * 100, units: [{ n: '份', g: e.grams }] }; openQty(food, { meal: f.meal, editId: e.id, entry: e, fromVoice: a === 'vredit' }); break; }
+      case 'vback': if (LR) drawResult(LR.text, LR.added, LR.unknown); else closeSheet(); break;
       case 'qunit': { const i = +el.dataset.i; if (i === Q.unit) break; const g = qGrams(); Q.unit = i; Q.amount = i < 0 ? r0(g) || 100 : 1; drawQty(); break; }
       case 'qmeal': Q.meal = el.dataset.meal; Q.amount = $('#qamt').value; drawQty(); break;
       case 'qsave': Q.amount = $('#qamt').value; saveQty(); break;
