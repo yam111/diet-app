@@ -4,7 +4,9 @@
 // 大家掃條碼、照包裝存好的食物會 POST 到這裡（只有條碼、品名、營養數字，沒有任何個人資料）
 // App 用 GET 讀回：同一個條碼取最新一筆；「停用」打勾的那筆不給（有人亂填就在試算表打勾）
 const SHEET = '條碼食物';
-const HEAD = ['時間', '條碼', '名稱', '每份克', '液體', '每100熱量', '每100蛋白質', '每100碳水', '每100脂肪', '停用'];
+const HEAD = ['時間', '條碼', '名稱', '每份克', '液體', '每100熱量', '每100蛋白質', '每100碳水', '每100脂肪', '停用', '每100糖', '每100鈉mg', '每100飽和脂肪', '每100反式脂肪', '每100膳食纖維'];
+// 糖、鈉…是後來加的，接在「停用」後面，舊資料不用搬；沒填＝空白（不知道）
+const NXK = ['sug', 'na', 'sat', 'tr', 'fib'];
 
 function sheet_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -15,6 +17,7 @@ function sheet_() {
     s.setFrozenRows(1);
     s.getRange('B:B').setNumberFormat('@');
   }
+  if (s.getLastColumn() < HEAD.length) s.getRange(1, 1, 1, HEAD.length).setValues([HEAD]).setFontWeight('bold');
   return s;
 }
 
@@ -29,7 +32,11 @@ function clean_(d) {
   if (p + c + f > 100.5) return null;
   // 有填三大營養素的話，算出來的熱量要跟填的熱量差不多（膳食纖維、糖醇會有點差，留寬一點）
   if (p + c + f > 0 && Math.abs(4 * p + 4 * c + 9 * f - k) > Math.max(40, k * 0.3)) return null;
-  return [bc, name, g, d.liq ? 1 : 0, k, p, c, f];
+  // 其他營養素：數字怪的就當沒填（不擋整筆）
+  const lim = { sug: c + 0.5, na: 40000, sat: f + 0.5, tr: f + 0.5, fib: 100 };
+  const nx = NXK.map(key => { if (d[key] == null || d[key] === '') return ''; const v = Number(d[key]); if (!isFinite(v) || v < 0 || v > lim[key]) return ''; return key === 'na' ? Math.round(v) : Math.round(v * 100) / 100; });
+  if (nx[2] !== '' && nx[3] !== '' && nx[2] + nx[3] > f + 0.5) nx[3] = '';
+  return [bc, name, g, d.liq ? 1 : 0, k, p, c, f].concat(nx);
 }
 
 function doPost(e) {
@@ -40,11 +47,11 @@ function doPost(e) {
     const s = sheet_(), n = s.getLastRow();
     // 跟這個條碼最新一筆一模一樣就不重複寫
     if (n > 1) {
-      const v = s.getRange(2, 2, n - 1, 8).getValues();
+      const v = s.getRange(2, 2, n - 1, HEAD.length - 1).getValues().map(r => r.slice(0, 8).concat(r.slice(9, 14)));
       for (let i = v.length - 1; i >= 0; i--) if (String(v[i][0]) === row[0]) { if (v[i].every((x, j) => String(x) === String(row[j]))) return out_({ ok: 1, same: 1 }); break; }
     }
-    s.appendRow([new Date(), "'" + row[0]].concat(row.slice(1)).concat([false]));
-    s.getRange(s.getLastRow(), HEAD.length).insertCheckboxes();
+    s.appendRow([new Date(), "'" + row[0]].concat(row.slice(1, 8)).concat([false]).concat(row.slice(8)));
+    s.getRange(s.getLastRow(), 10).insertCheckboxes();
     return out_({ ok: 1 });
   } finally { lock.releaseLock(); }
 }
@@ -54,7 +61,7 @@ function doGet(e) {
   const m = {};
   if (n > 1) for (const r of s.getRange(2, 1, n - 1, HEAD.length).getValues()) {
     const bc = String(r[1]).replace(/\D/g, ''); if (!bc || r[9] === true || (want && bc !== want)) continue;
-    m[bc] = [bc, String(r[2]), +r[3], r[4] ? 1 : 0, +r[5], +r[6], +r[7], +r[8]];
+    m[bc] = [bc, String(r[2]), +r[3], r[4] ? 1 : 0, +r[5], +r[6], +r[7], +r[8]].concat(r.slice(10, 15).map(x => x === '' || x == null ? null : +x));
   }
   return out_({ ok: 1, items: Object.values(m) });
 }

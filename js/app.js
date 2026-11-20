@@ -42,27 +42,35 @@
     date: today(), tab: 'today', q: '', meal: null, cat: '', lastBatch: null
   };
   const saveLog = () => save('SG_LOG', S.log);
+  // 其他營養素（每 100 克）：糖、鈉（毫克）、飽和脂肪、反式脂肪、膳食纖維。沒有資料＝不知道（不是 0），加總時會提示
+  const NX = [['sug', '糖', '克'], ['na', '鈉', '毫克'], ['sat', '飽和脂肪', '克'], ['tr', '反式脂肪', '克'], ['fib', '膳食纖維', '克']];
+  const NXK = NX.map(x => x[0]);
+  const nxOf = a => { const o = {}; if (Array.isArray(a)) NXK.forEach((k, i) => { const v = a[i]; if (v != null && v !== '' && isFinite(+v)) o[k] = +v; }); return o; };
+  const pickNx = f => { const o = {}; for (const k of NXK) if (f && f[k] != null) o[k] = f[k]; return o; };
+  const nxR = (k, v) => k === 'na' ? Math.round(v) : k === 'tr' ? Math.round(v * 100) / 100 : Math.round(v * 10) / 10;
   let ALL = [];
   let RFOODS = [];
   function rebuildFoods() { const ov = new Set(S.custom.map(o => o.id)); ALL = S.custom.concat(FOODS.filter(f => !ov.has(f.id))); RFOODS = S.recipes.map(recipeFood).filter(Boolean); ALL = RFOODS.concat(ALL); NL.setFoods(ALL); }
   // 食材：資料庫找得到就用最新的數值，找不到（自訂食物被刪了）就用存食譜當下的數值
-  function ingFood(it) { return foodById(it.fid) || { id: it.fid, name: it.name, alias: [], kcal: it.kcal, p: it.p, c: it.c, f: it.f, units: [{ n: '份', g: it.grams }], cat: '' }; }
+  function ingFood(it) { return foodById(it.fid) || { id: it.fid, name: it.name, alias: [], kcal: it.kcal, p: it.p, c: it.c, f: it.f, ...pickNx(it), units: [{ n: '份', g: it.grams }], cat: '' }; }
+  // 其他營養素：每樣食材都有資料才算得出整道（有一樣不知道就是不知道）
   function recipeSum(r) {
-    const t = { g: 0, kcal: 0, p: 0, c: 0, f: 0 };
-    for (const it of r.items) { const v = calc(ingFood(it), it.grams); t.g += it.grams; t.kcal += v.kcal; t.p += v.p; t.c += v.c; t.f += v.f; }
+    const t = { g: 0, kcal: 0, p: 0, c: 0, f: 0 }; NXK.forEach(k => t[k] = 0);
+    for (const it of r.items) { const v = calc(ingFood(it), it.grams); t.g += it.grams; t.kcal += v.kcal; t.p += v.p; t.c += v.c; t.f += v.f; for (const k of NXK) t[k] = t[k] == null || v[k] == null ? null : t[k] + v[k]; }
     return t;
   }
   // 食譜在搜尋、語音裡就是一個「食物」：一份＝全部食材 ÷ 做一次可以吃幾份
   function recipeFood(r) {
     const t = recipeSum(r); if (!(t.g > 0)) return null;
     const x = 100 / t.g;
-    return { id: r.id, name: r.name, alias: r.alias || [], kcal: r1(t.kcal * x), p: r1(t.p * x), c: r1(t.c * x), f: r1(t.f * x), units: [{ n: '份', g: r1(t.g / (r.yields || 1)) }], cat: '我的食譜', brand: [], recipe: true, anyUnit: true };
+    const nx = {}; for (const k of NXK) if (t[k] != null) nx[k] = nxR(k, t[k] * x);
+    return { id: r.id, name: r.name, alias: r.alias || [], kcal: r1(t.kcal * x), p: r1(t.p * x), c: r1(t.c * x), f: r1(t.f * x), ...nx, units: [{ n: '份', g: r1(t.g / (r.yields || 1)) }], cat: '我的食譜', brand: [], recipe: true, anyUnit: true };
   }
   const foodById = id => { const [b, sg] = String(id).split('@'); const f = ALL.find(x => x.id === b) || EXTMAP.get(b); return f && sg ? NL.sugarVariant(f, sg) : f; };
   // 衛福部食品營養成分資料庫完整版（約 1800 種，開啟後背景載入，只用在搜尋）
   let EXT = [], EXTMAP = new Map();
   fetch('data/tfda.json').then(r => r.json()).then(a => {
-    EXT = a.map(([id, name, al, k, p, c, f, cat, st]) => ({ id: 't_' + id, name, alias: al ? al.split(',') : [], kcal: k, p, c, f, units: [{ n: '份', g: 100 }], cat, st, ext: 1 }));
+    EXT = a.map(([id, name, al, k, p, c, f, cat, st, ...nx]) => ({ id: 't_' + id, name, alias: al ? al.split(',') : [], kcal: k, p, c, f, ...nxOf(nx), units: [{ n: '份', g: 100 }], cat, st, ext: 1 }));
     EXTMAP = new Map(EXT.map(x => [x.id, x]));
     for (const x of BEXT) EXTMAP.set(x.id, x);
     for (const x of SHARED) EXTMAP.set(x.id, x);
@@ -71,14 +79,14 @@
   // 超商・連鎖店品項（全家官網營養標示等，約上千項，開啟後背景載入，只用在搜尋）
   let BEXT = [];
   fetch('data/brands.json').then(r => r.json()).then(a => {
-    BEXT = a.map(([id, name, al, k, p, c, f, units, cat, brand, src]) => ({ id: 'b_' + id, name, alias: al ? al.split(',') : [], kcal: k, p, c, f, units: units.split(',').map(u => { const [n, g] = u.split(':'); return { n, g: +g }; }), cat, brand: brand ? brand.split(',') : [], st: src, ext: 1 }));
+    BEXT = a.map(([id, name, al, k, p, c, f, units, cat, brand, src, nx]) => ({ id: 'b_' + id, name, alias: al ? al.split(',') : [], kcal: k, p, c, f, ...nxOf(nx), units: units.split(',').map(u => { const [n, g] = u.split(':'); return { n, g: +g }; }), cat, brand: brand ? brand.split(',') : [], st: src, ext: 1 }));
     for (const x of BEXT) EXTMAP.set(x.id, x);
     NL.setBrandFoods(BEXT); // 語音／打字講了店名（全家、7-11…）也用這份
     if ($('#results')) renderResults();
   }).catch(() => { });
   // 共用條碼食物庫：大家掃條碼、照包裝對過存好的食物（Google 試算表＋Apps Script），存一份在手機離線也能用
   const SHARE_URL = 'https://script.google.com/macros/s/AKfycbwcirBbJG-oYsu2tSQvRHRduby5zpEmKcuJvyp_kbI7K8zBBCpOamOy-WdIy8cCEHQY0w/exec';
-  const sharedFood = ([bc, name, g, liq, k, p, c, f]) => ({ id: 's_' + bc, name, alias: [], kcal: k, p, c, f, units: [{ n: '份', g: g > 0 ? g : 100 }], cat: '條碼', st: '大家掃的', barcode: bc, liq: liq ? 1 : 0, ext: 1 });
+  const sharedFood = ([bc, name, g, liq, k, p, c, f, ...nx]) => ({ id: 's_' + bc, name, alias: [], kcal: k, p, c, f, ...nxOf(nx), units: [{ n: '份', g: g > 0 ? g : 100 }], cat: '條碼', st: '大家掃的', barcode: bc, liq: liq ? 1 : 0, ext: 1 });
   let SHARED = [];
   function setShared(items) { for (const x of SHARED) EXTMAP.delete(x.id); SHARED = items.map(sharedFood); for (const x of SHARED) EXTMAP.set(x.id, x); }
   setShared(load('SG_SHARED', []));
@@ -87,9 +95,9 @@
   // 回傳：只有條碼、品名、每份克數、每 100 克營養數字；沒網路就排著，下次打開再送
   function shareFood(food) {
     if (!food.barcode) return; const u = food.units[0];
-    const it = { barcode: food.barcode, name: food.name, g: u.g, kcal: food.kcal, p: food.p, c: food.c, f: food.f, liq: food.liq ? 1 : 0 };
+    const it = { barcode: food.barcode, name: food.name, g: u.g, kcal: food.kcal, p: food.p, c: food.c, f: food.f, ...pickNx(food), liq: food.liq ? 1 : 0 };
     const q = load('SG_SHARE_Q', []).filter(x => x.barcode !== it.barcode); q.push(it); save('SG_SHARE_Q', q.slice(-50)); flushShare();
-    const arr = load('SG_SHARED', []).filter(x => x[0] !== it.barcode); arr.push([it.barcode, it.name, it.g, it.liq, it.kcal, it.p, it.c, it.f]); save('SG_SHARED', arr); setShared(arr);
+    const arr = load('SG_SHARED', []).filter(x => x[0] !== it.barcode); arr.push([it.barcode, it.name, it.g, it.liq, it.kcal, it.p, it.c, it.f, ...NXK.map(k => it[k] != null ? it[k] : null)]); save('SG_SHARED', arr); setShared(arr);
   }
   let sharing = false;
   async function flushShare() {
@@ -191,8 +199,9 @@
   }
   function day(k) { return S.log[k] || (S.log[k] = { breakfast: [], lunch: [], dinner: [], snack: [] }); }
   function totals(k) {
-    const t = { kcal: 0, p: 0, c: 0, f: 0, n: 0 }; const d = S.log[k]; if (!d) return t;
-    for (const m of MEALS) for (const e of d[m.k] || []) { t.kcal += e.kcal; t.p += e.p; t.c += e.c; t.f += e.f; t.n++; }
+    const t = { kcal: 0, p: 0, c: 0, f: 0, n: 0, miss: {} }; NXK.forEach(x => t[x] = 0); const d = S.log[k]; if (!d) return t;
+    for (const m of MEALS) for (const e of d[m.k] || []) { t.kcal += e.kcal; t.p += e.p; t.c += e.c; t.f += e.f; t.n++;
+      let m = 0; for (const x of NXK) if (e[x] != null) t[x] += e[x]; else { t.miss[x] = (t.miss[x] || 0) + 1; m = 1; } t.nmiss = (t.nmiss || 0) + m; } // 舊紀錄、沒資料的食物＝不知道
     return t;
   }
   // 液體（飲料、湯…）用毫升顯示，其他用克；計算都以克（1 毫升≈1 克）
@@ -201,7 +210,7 @@
   const entryLiq = e => e.liq != null ? !!e.liq : NL.isLiquid(foodById(e.fid) || { name: e.name });
   const eu = e => entryLiq(e) ? '毫升' : '克';
   const eLabel = e => entryLiq(e) ? String(e.label).replace(/(\d) 克/g, '$1 毫升') : e.label;
-  function calc(food, grams) { const x = grams / 100; return { kcal: r0(food.kcal * x), p: r1(food.p * x), c: r1(food.c * x), f: r1(food.f * x) }; }
+  function calc(food, grams) { const x = grams / 100; const o = { kcal: r0(food.kcal * x), p: r1(food.p * x), c: r1(food.c * x), f: r1(food.f * x) }; for (const k of NXK) if (food[k] != null) o[k] = nxR(k, food[k] * x); return o; }
   // 吃了食譜 k 份：每樣食材照比例分開記（之後每樣都能單獨改）
   function logRecipe(r, k, meal, date = S.date) {
     const s = k / (r.yields || 1);
@@ -286,6 +295,7 @@
         <div class="row"><span>實際</span>${t.kcal ? stack(pk, ck, fk) : '<div class="stack"></div>'}</div>
         <div class="row"><span>目標</span>${stack(T.p * 4, T.c * 4, T.f * 9, 'ghost')}</div>
         <div class="legend"><b class="kp">蛋白質</b><b class="kc">碳水</b><b class="kf">脂肪</b></div></div>
+      ${nxCard(t, T)}
       ${MEALS.map(m => { const list = d[m.k] || []; const sum = list.reduce((a, e) => a + e.kcal, 0);
         return `<div class="card meal" data-meal="${m.k}"><header><span class="ic"><svg viewBox="0 0 24 24">${m.ic}</svg></span><b>${m.n}</b>${sum ? `<span class="num msum">${sum}<u>kcal</u>${T.kcal > 0 ? `<em>佔全天 ${Math.round(sum / T.kcal * 100)}%</em>` : ''}</span>` : ''}<button class="add" data-act="addto" data-meal="${m.k}" aria-label="新增到${m.n}">+</button></header>
         ${list.length ? mealSum(list, sum, T) : ''}
@@ -296,6 +306,17 @@
     const fg = $('.ring .fg');
     if (fg && quiet && ringAt != null) { fg.style.transition = 'none'; fg.style.strokeDashoffset = ringAt; fg.getBoundingClientRect(); fg.style.transition = ''; }
     if (fg) { ringAt = fg.dataset.to; requestAnimationFrame(() => requestAnimationFrame(() => { fg.style.strokeDashoffset = fg.dataset.to; })); }
+  }
+  // 糖・鈉・飽和脂肪・反式脂肪・膳食纖維：跟每日建議比（衛福部：添加糖、飽和脂肪各 < 總熱量 10%，鈉 < 2400 毫克，纖維每 1000 大卡 14 克）
+  function nxLim(T) { return { sug: r0(T.kcal * 0.1 / 4), na: 2400, sat: r0(T.kcal * 0.1 / 9), tr: 2, fib: r0(T.kcal / 1000 * 14) }; }
+  function nxCard(t, T, avg) {
+    const L = nxLim(T), fx = (k, v) => k === 'na' ? r0(v) : k === 'tr' ? Math.round(v * 10) / 10 : r0(v);
+    const row = ([k, n, u]) => { const v = t[k] || 0, lim = L[k], goal = k === 'fib', over = !goal && v > lim, uu = u === '毫克' ? 'mg' : 'g';
+      const tip = k === 'tr' ? '越少越好' : goal ? (v >= lim ? '達標' : '目標 ' + lim + ' ' + uu) : over ? '超過 ' + fx(k, v - lim) + ' ' + uu : '上限 ' + lim + ' ' + uu;
+      return `<div class="nxr ${over ? 'over' : ''} ${goal ? 'goal' : ''}"><span class="l">${n}</span><div class="bar"><i style="width:${lim > 0 ? Math.min(100, v / lim * 100) : 0}%"></i></div><span class="v"><b class="num">${fx(k, v)}</b>${uu}<em>${tip}</em></span></div>`; };
+    const miss = t.nmiss || 0;
+    return `<div class="card nxc"><h3>糖・鈉・脂肪酸・纖維<em>${avg ? '7 天平均' : '每日建議'}</em></h3>${NX.map(row).join('')}
+      <p class="note">${miss ? `有 ${miss} 筆${avg ? '' : '紀錄'}沒有完整資料（舊紀錄或資料庫沒寫），實際可能比這裡多。` : ''}糖的上限是「添加糖」的建議，水果、牛奶本身的糖也算在裡面；料理類的數字是估算。</p></div>`;
   }
   // 這一餐吃了多少：三大營養素克數＋佔全天目標幾成，一眼知道下一餐怎麼分
   function mealSum(list, kcal, T) {
@@ -371,6 +392,11 @@
     }
     drawQty();
   }
+  // 份量視窗：糖・鈉・飽和・反式・纖維，沒有資料的寫「—」
+  function nxLine(food, v) {
+    if (!NXK.some(k => food[k] != null)) return '<span class="none">這個食物沒有糖、鈉等資料</span>';
+    return NX.map(([k, n, u]) => `<span><small>${n}</small><b class="num">${v[k] != null ? v[k] : '—'}</b>${v[k] != null ? (u === '毫克' ? 'mg' : 'g') : ''}</span>`).join('');
+  }
   function qGrams() { const a = parseFloat(Q.amount) || 0; return Q.unit < 0 ? a : a * Q.food.units[Q.unit].g; }
   function drawQty() {
     const f = Q.food;
@@ -380,6 +406,7 @@
       <div class="qg" id="qg"></div>
       ${Q.ing != null ? '' : `<div class="seg sm">${MEALS.map(m => `<button data-act="qmeal" data-meal="${m.k}" class="${Q.meal === m.k ? 'on' : ''}">${m.k === 'snack' ? '小食' : m.n}</button>`).join('')}</div>`}
       <div class="qsum"><div><small>熱量</small><span class="num" id="qk"></span></div><div><small>蛋白質</small><span class="num" id="qp"></span></div><div><small>碳水</small><span class="num" id="qc"></span></div><div><small>脂肪</small><span class="num" id="qf"></span></div></div>
+      <div class="qnx" id="qx"></div>
       ${f.recipe ? `<div class="rlist" id="qings"></div>` : ''}
       ${Q.ing != null ? `<div class="btnrow"><button class="btn ghost" style="flex:.6" data-act="rback">返回</button><button class="btn" data-act="qsave">${Q.ing >= 0 ? '更新食材' : '加到食譜'}</button></div>`
         : Q.editId ? `<div class="btnrow"><button class="btn danger" style="flex:.6" data-act="qdel">刪除</button><button class="btn" data-act="qsave">儲存</button></div>` : `<button class="btn" data-act="qsave">加入${mealName(Q.meal)}</button>`}
@@ -387,13 +414,13 @@
       ${Q.ing == null && !f.recipe && !String(f.id).includes('@') && foodById(f.id) ? `<button class="linkbtn" data-act="cfedit" data-fid="${esc(f.id)}">數字不對？修改這個食物的營養資料${f.barcode ? '（條碼 ' + esc(f.barcode) + '）' : ''}</button>` : ''}`);
     updQty();
   }
-  function updQty() { const g = qGrams(), v = calc(Q.food, g); $('#qk').textContent = v.kcal; $('#qp').textContent = v.p; $('#qc').textContent = v.c; $('#qf').textContent = v.f; $('#qg').textContent = Q.unit < 0 ? '' : '約 ' + r0(g) + ' ' + gu(Q.food);
+  function updQty() { const g = qGrams(), v = calc(Q.food, g); $('#qk').textContent = v.kcal; $('#qp').textContent = v.p; $('#qc').textContent = v.c; $('#qf').textContent = v.f; $('#qx').innerHTML = nxLine(Q.food, v); $('#qg').textContent = Q.unit < 0 ? '' : '約 ' + r0(g) + ' ' + gu(Q.food);
     const box = $('#qings'); if (box) { const r = S.recipes.find(x => x.id === Q.food.id); if (r) box.innerHTML = '<div class="rhead">會分開記成 ' + r.items.length + ' 樣</div>' + scaledRows(r, g / Q.food.units[0].g); } }
   function saveQty() {
     const g = qGrams(); if (!(g > 0)) return toast('請輸入份量');
     const a = parseFloat(Q.amount), u = Q.unit < 0 ? null : Q.food.units[Q.unit];
     if (Q.ing != null) { // 食譜編輯：加／改一樣食材
-      const it = { fid: Q.food.id, name: Q.food.name, grams: r1(g), kcal: Q.food.kcal, p: Q.food.p, c: Q.food.c, f: Q.food.f, ...(u ? { unit: u.n, amount: a } : {}) };
+      const it = { fid: Q.food.id, name: Q.food.name, grams: r1(g), kcal: Q.food.kcal, p: Q.food.p, c: Q.food.c, f: Q.food.f, ...pickNx(Q.food), ...(u ? { unit: u.n, amount: a } : {}) };
       if (Q.ing >= 0) RE.items[Q.ing] = it; else { RE.items.push(it); RE.q = ''; }
       return drawRecipe();
     }
@@ -431,7 +458,7 @@
     const u = edit && edit.units[0], per = v => edit ? r1(v * u.g / 100) : '';
     const mine = edit && S.custom.some(x => x.id === edit.id), base = edit && (FOODS.find(x => x.id === edit.id) || EXTMAP.get(edit.id));
     sheet(`${(barcode && !edit) || o.net ? '<button class="backbtn" data-act="scan">‹ 重新掃描</button>' : o.back ? '<button class="backbtn" data-act="nfback">‹ 返回</button>' : ''}<h2>${o.net ? '對一下包裝' : edit ? '修改食物資料' : '新增自訂食物'}</h2><div class="sub">${o.net ? `網路上找到這個條碼（Open Food Facts，大家上傳的資料，可能是舊包裝或打錯）。請跟包裝背面的「營養標示」對一下，不一樣就照包裝改。${o.net === 'nosv' ? '網路資料沒寫每份多重，下面先用「每 100 克」，可以對包裝的「每100公克」那欄，或改成「每一份量」。' : ''}存好之後，掃這個條碼都用你對過的數字。` : edit ? (String(edit.id).startsWith('s_') && !mine ? '這是其他人掃這個條碼時照包裝填的數字。跟包裝對一下，不一樣就照包裝改。' : base && !mine ? '這是內建的數字（參考衛福部資料或一般做法估算）。照包裝或你吃的那家改，之後記的、說話記的都用你的數字；隨時可以還原。' : '照包裝上的「每一份量」營養標示改。') + '已經記過的紀錄不會變，要套新數字就點那一筆再按儲存。' : barcode ? `條碼 ${esc(barcode)} 還沒有資料。照包裝背面的營養標示填一次，下次掃這個條碼就直接帶出來。` : '照包裝上的「每一份量」營養標示填就可以'}${barcode || o.net || (edit && edit.barcode) ? '<p class="note" style="margin-top:6px">有條碼的食物存好後會分享到共用食物庫，其他人掃同一個條碼就查得到（只分享條碼、品名和營養數字）。</p>' : ''}</div>
-      ${SR ? `<button class="nfmic" id="nfmic" data-act="nfmic">${MIC}<span>用講的填</span></button><div class="nfheard" id="nfheard">例：「老饕廚房番茄雞胸肉，每份 180 克，熱量 250，蛋白質 30，碳水 12，脂肪 8」（品名先講，數字照包裝念）</div>` : ''}
+      ${SR ? `<button class="nfmic" id="nfmic" data-act="nfmic">${MIC}<span>用講的填</span></button><div class="nfheard" id="nfheard">例：「老饕廚房番茄雞胸肉，每份 180 克，熱量 250，蛋白質 30，碳水 12，脂肪 8，糖 3，鈉 450 毫克」（品名先講，數字照包裝念）</div>` : ''}
       <div class="field"><label>名稱</label><input id="nf-n" type="text" style="font-family:var(--sans);font-size:16px;width:190px" value="${esc(edit ? edit.name : name)}" placeholder="例如：公司樓下雞肉飯"></div>
       <div class="seg sm" id="nf-liq" style="margin:4px 0 2px"><button data-act="nfliq" data-v="0" class="${NFLIQ ? '' : 'on'}">吃的（克）</button><button data-act="nfliq" data-v="1" class="${NFLIQ ? 'on' : ''}">喝的（毫升）</button></div>
       <div class="field"><label id="nf-gl">${NFLIQ ? '每份容量' : '每份重量'}${edit && u.n !== '份' ? '（1 ' + esc(u.n) + '）' : ''}</label><input id="nf-g" type="number" inputmode="decimal" value="${edit ? u.g : 100}"><span class="u" id="nf-gu">${NFLIQ ? '毫升' : '克'}</span></div>
@@ -439,19 +466,24 @@
       <div class="field"><label>蛋白質</label><input id="nf-p" type="number" inputmode="decimal" placeholder="0" value="${per(edit && edit.p)}"><span class="u">克</span></div>
       <div class="field"><label>碳水化合物</label><input id="nf-c" type="number" inputmode="decimal" placeholder="0" value="${per(edit && edit.c)}"><span class="u">克</span></div>
       <div class="field"><label>脂肪</label><input id="nf-f" type="number" inputmode="decimal" placeholder="0" value="${per(edit && edit.f)}"><span class="u">克</span></div>
+      <details class="nfmore" id="nfmore" ${edit && NXK.some(k => edit[k] != null) ? 'open' : ''}><summary>更多營養素（糖、鈉、飽和／反式脂肪、纖維）</summary>
+        ${NX.map(([k, n, u]) => `<div class="field"><label>${n}</label><input id="nf-${k}" type="number" inputmode="decimal" placeholder="不知道" value="${edit && edit[k] != null ? (k === 'na' ? r0(edit[k] * u0g(edit) / 100) : Math.round(edit[k] * u0g(edit)) / 100) : ''}"><span class="u">${u}</span></div>`).join('')}
+        <p class="note" style="margin-top:8px">照包裝「每一份量」填；沒寫的空著就好（空著＝不知道，不會當成 0）。</p></details>
       <p class="note">熱量沒填的話，會用三大營養素自動算（蛋白質、碳水每克 4 大卡，脂肪每克 9 大卡）。</p>
       ${o.net ? '<button class="btn" data-act="nfsave">對好了，加入紀錄</button>' : edit ? `<div class="btnrow">${mine ? `<button class="btn danger" style="flex:.6" data-act="cfdel">${base ? '還原' : '刪除'}</button>` : ''}<button class="btn" data-act="nfsave">儲存</button></div>` : `<button class="btn" data-act="nfsave">${o.from === 'me' ? '儲存' : '儲存並加入紀錄'}</button>`}`, stopRec);
     NFNET = !!o.net;
   }
+  const u0g = f => f.units[0].g;
   function saveNewFood() {
     const v = id => parseFloat($(id).value) || 0; const name = $('#nf-n').value.trim(); const g = v('#nf-g');
     if (!name) return toast('請輸入名稱'); if (!(g > 0)) return toast(NFLIQ ? '請輸入每份容量' : '請輸入每份重量');
     const p = v('#nf-p'), c = v('#nf-c'), f = v('#nf-f'); const k = v('#nf-k') || p * 4 + c * 4 + f * 9;
     if (!(k > 0)) return toast('請輸入熱量或營養素');
+    const bad = nfNxBad(p, c, f); if (bad) return toast(bad);
     const x = 100 / g, ed = NFED; let bc = ed ? ed.barcode || '' : NFBC;
     // 同名的舊自訂食物會被換掉；它有條碼的話留下來，不然下次掃那個條碼就找不到了
     const same = S.custom.find(o => o.name === name && o !== ed && o.barcode); if (!bc && same) bc = same.barcode;
-    const food = { id: ed ? ed.id : 'c_' + uid(), name, alias: ed && name === ed.name ? (ed.alias || []).slice() : [], kcal: r1(k * x), p: r1(p * x), c: r1(c * x), f: r1(f * x), units: [{ n: ed && ed.units[0].n || '份', g }, ...(ed ? ed.units.slice(1) : [])], cat: ed ? ed.cat || '自訂' : '自訂', liq: NFLIQ ? 1 : 0, ...(ed && ed.brand && ed.brand.length ? { brand: ed.brand.slice() } : {}), ...(bc ? { barcode: bc } : {}) };
+    const food = { id: ed ? ed.id : 'c_' + uid(), name, alias: ed && name === ed.name ? (ed.alias || []).slice() : [], kcal: r1(k * x), p: r1(p * x), c: r1(c * x), f: r1(f * x), ...nfNx(x, p, c, f), units: [{ n: ed && ed.units[0].n || '份', g }, ...(ed ? ed.units.slice(1) : [])], cat: ed ? ed.cat || '自訂' : '自訂', liq: NFLIQ ? 1 : 0, ...(ed && ed.brand && ed.brand.length ? { brand: ed.brand.slice() } : {}), ...(bc ? { barcode: bc } : {}) };
     const at = ed ? S.custom.findIndex(o => o.id === ed.id) : -1;
     S.custom = S.custom.filter(o => o.id !== food.id && o.name !== name && !(bc && o.barcode === bc));
     if (at >= 0) S.custom.splice(Math.min(at, S.custom.length), 0, food); else S.custom.unshift(food);
@@ -461,6 +493,15 @@
     if (o.from === 'me') { closeSheet(); if (!ed) toast('已新增「' + name + '」'); return render(); }
     if (o.from === 'entry' && o.q && o.q.entry) return openQty(food, o.q);
     openQty(food, { fromSearch: true });
+  }
+  // 更多營養素：填了才存（每 100 克），空著＝不知道
+  const nfVal = k => { const i = $('#nf-' + k); if (!i || i.value.trim() === '') return null; const v = parseFloat(i.value); return isFinite(v) && v >= 0 ? v : null; };
+  function nfNx(x) { const o = {}; for (const k of NXK) { const v = nfVal(k); if (v != null) o[k] = nxR(k, v * x); } return o; }
+  function nfNxBad(p, c, f) {
+    const sug = nfVal('sug'), sat = nfVal('sat'), tr = nfVal('tr');
+    if (sug != null && c > 0 && sug > c + 0.5) return '糖不會比碳水化合物多，請對一下';
+    if ((sat || 0) + (tr || 0) > f + 0.5 && f > 0) return '飽和＋反式脂肪不會比脂肪多，請對一下';
+    return '';
   }
   function deleteCustom(id) {
     const f = S.custom.find(o => o.id === id), base = f && (FOODS.find(x => x.id === id) || EXTMAP.get(id));
@@ -506,6 +547,9 @@
     } catch (e) { stopScan(); msg('沒辦法開相機（要允許「相機」權限），也可以直接輸入條碼數字。'); }
   }
   function stopScan() { if (scanStop) { const f = scanStop; scanStop = null; try { f(); } catch (e) { } } }
+  // Open Food Facts 的糖、鈉（克→毫克）、飽和／反式脂肪、纖維；沒寫的就不知道
+  function offNx(n) { const o = {}, m = { sug: 'sugars_100g', na: 'sodium_100g', sat: 'saturated-fat_100g', tr: 'trans-fat_100g', fib: 'fiber_100g' };
+    for (const [k, key] of Object.entries(m)) { const v = parseFloat(n[key]); if (isFinite(v) && v >= 0) o[k] = nxR(k, k === 'na' ? v * 1000 : v); } return o; }
   async function lookupBarcode(code) {
     code = String(code || '').replace(/\D/g, ''); if (code.length < 8) return toast('條碼是 8～13 位數字');
     const mine = S.custom.find(f => f.barcode === code); if (mine) return openQty(mine, { fromSearch: true });
@@ -523,7 +567,7 @@
         let name = (p.product_name_zh || p.product_name || '').trim() || '條碼 ' + code; const br = (p.brands || '').split(',')[0].trim();
         if (br && !name.toLowerCase().includes(br.toLowerCase())) name = br + ' ' + name;
         const sq = parseFloat(p.serving_quantity);
-        const food = { id: 'c_' + uid(), name, alias: [], kcal: r1(k), p: r1(+n.proteins_100g || 0), c: r1(+n.carbohydrates_100g || 0), f: r1(+n.fat_100g || 0), units: [{ n: '份', g: sq > 0 && sq < 2000 ? r1(sq) : 100 }], cat: '條碼', barcode: code, liq: /\d\s*(ml|cl|l|毫升|公升|cc)\b/i.test((p.serving_size || '') + ' ' + (p.quantity || '')) || NL.isLiquid({ name }) ? 1 : 0 };
+        const food = { id: 'c_' + uid(), name, alias: [], kcal: r1(k), p: r1(+n.proteins_100g || 0), c: r1(+n.carbohydrates_100g || 0), f: r1(+n.fat_100g || 0), ...offNx(n), units: [{ n: '份', g: sq > 0 && sq < 2000 ? r1(sq) : 100 }], cat: '條碼', barcode: code, liq: /\d\s*(ml|cl|l|毫升|公升|cc)\b/i.test((p.serving_size || '') + ' ' + (p.quantity || '')) || NL.isLiquid({ name }) ? 1 : 0 };
         S.custom = S.custom.filter(o => o.barcode !== code); S.custom.unshift(food); save('SG_CUSTOM', S.custom); rebuildFoods();
         // 網路資料是大家上傳的，常是舊包裝、打錯或沒寫每份多重：先讓他照包裝對一次，存下來之後掃這個條碼就用對過的數字
         return openNewFood('', '', food, { net: !(sq > 0 && sq < 2000) ? 'nosv' : 'sv' });
@@ -592,7 +636,7 @@
       const rec = food.recipe && S.recipes.find(x => x.id === food.id);
       if (rec) { const s = it.grams / food.units[0].g / (rec.yields || 1); for (const x of rec.items) { RE.items.push({ ...x, grams: r1(x.grams * s), ...(x.unit ? { amount: Math.round(x.amount * s * 100) / 100 } : {}) }); n++; } continue; }
       const a = parseFloat(it.label), u = !isAmt(it.label) && a > 0 ? food.units.find(u => Math.abs(u.g * a - it.grams) < 0.6) : null;
-      RE.items.push({ fid: food.id, name: food.name, grams: it.grams, kcal: food.kcal, p: food.p, c: food.c, f: food.f, ...(u ? { unit: u.n, amount: a } : {}) }); n++;
+      RE.items.push({ fid: food.id, name: food.name, grams: it.grams, kcal: food.kcal, p: food.p, c: food.c, f: food.f, ...pickNx(food), ...(u ? { unit: u.n, amount: a } : {}) }); n++;
     }
     if (!n) return toast('找不到「' + text + '」，點下面的搜尋結果試試');
     RE.q = ''; drawRecipe(); toast('加了 ' + n + ' 樣' + (r.unknown.length ? '，「' + r.unknown.join('、') + '」沒認出來' : ''));
@@ -675,26 +719,27 @@
   }
   // 自訂食物表單：講「每份 60 克 熱量 250 蛋白質 8 碳水 30 脂肪 11」自動填進欄位
   function nutriFromSpeech(text) {
-    let s = String(text || '').replace(/\s+/g, '').replace(/公克|g(?![a-z])/gi, '克').replace(/kcal|千卡|卡路里/gi, '大卡').replace(/ml|cc|c\.c\./gi, '毫升')
+    let s = String(text || '').replace(/\s+/g, '').replace(/毫克|mg(?![a-z])/gi, '毫克').replace(/公克|(?<!m)g(?![a-z])/gi, '克').replace(/kcal|千卡|卡路里/gi, '大卡').replace(/ml|cc|c\.c\./gi, '毫升')
       .replace(/([零〇一二兩三四五六七八九十百千\d]+)點([零〇一二三四五六七八九\d]+)/g, (m, a, b) => NL.cnNum(a) + '.' + [...b].map(ch => /\d/.test(ch) ? ch : NL.cnNum(ch)).join(''))
-      .replace(/[零〇一二兩三四五六七八九十百千]+(?=[\d.]*(大卡|克|毫升|$|[，,、。熱蛋碳脂每份重容名]))/g, m => NL.cnNum(m))
-      .replace(/(飽和|反式)脂肪[\d.]*克?/g, '').replace(/糖[\d.]*克?|鈉[\d.]*毫克/g, '');
+      .replace(/[零〇一二兩三四五六七八九十百千]+(?=[\d.]*(大卡|克|毫克|毫升|$|[，,、。熱蛋碳脂每份重容名糖鈉飽反膳纖]))/g, m => NL.cnNum(m));
     const out = {};
-    const KEYS = [['k', /熱量|大卡|能量/], ['p', /蛋白質?/], ['c', /碳水化合物|碳水|醣類/], ['f', /脂肪|油脂/], ['g', /每一?份量?|份量|重量|容量|淨重/]];
+    const KEYS = [['k', /熱量|大卡|能量/], ['p', /蛋白質?/], ['c', /碳水化合物|碳水|醣類/], ['f', /脂肪|油脂/], ['g', /每一?份量?|份量|重量|容量|淨重/], ['sat', /飽和脂肪酸?|飽和/], ['tr', /反式脂肪酸?|反式/], ['sug', /糖類?|糖分/], ['na', /鈉/], ['fib', /膳食纖維|纖維/]];
     const marks = [];
     for (const [k, re] of KEYS) { const g = new RegExp(re.source, 'g'); let m; while ((m = g.exec(s))) marks.push({ k, i: m.index, e: m.index + m[0].length }); }
-    marks.sort((a, b) => a.i - b.i);
+    marks.sort((a, b) => a.i - b.i || b.e - a.e);
+    // 「飽和脂肪」裡面的「脂肪」不算一個；品名裡的「糖」（黑糖拿鐵）後面沒數字，下面會略過
+    for (let j = marks.length - 1; j >= 0; j--) if (marks.some((o, q) => q !== j && o.i <= marks[j].i && o.e >= marks[j].e && o.e - o.i > marks[j].e - marks[j].i)) marks.splice(j, 1);
     marks.forEach((m, j) => {
       if (out[m.k] != null) return;
       const seg = s.slice(m.e, j + 1 < marks.length ? marks[j + 1].i : s.length), n = /(\d+(?:\.\d+)?)/.exec(seg);
-      if (n) { out[m.k] = parseFloat(n[1]); if (m.k === 'g' && /毫升/.test(seg)) out.liq = 1; if (m.k === 'g' && /克/.test(seg)) out.liq = 0; }
+      if (n) { out[m.k] = parseFloat(n[1]); if (m.k === 'na' && /(?<!毫)克/.test(seg) && !/毫克/.test(seg)) out.na = Math.round(out.na * 1000); /* 「鈉 0.3 克」 */ if (m.k === 'g' && /毫升/.test(seg)) out.liq = 1; if (m.k === 'g' && /克/.test(seg)) out.liq = 0; }
     });
     if (out.k == null) { const m = /(\d+(?:\.\d+)?)大卡/.exec(s); if (m) out.k = parseFloat(m[1]); } // 「250大卡」
     const nm = /(?:名稱|名字|叫做?)(.+?)(?=熱量|蛋白|碳水|脂肪|每|份量|重量|容量|\d|$)/.exec(s);
     if (nm && nm[1].replace(/[，,、。是：:]/g, '')) out.n = nm[1].replace(/^[是：:]|[，,、。]/g, '');
     // 沒說「名稱」：數字前面講的就當品名（「老饕廚房番茄雞胸肉 熱量 250 蛋白質 30…」）
     if (out.n == null) {
-      const raw = String(text || '').replace(/\s+/g, ''), m = /熱量|蛋白|碳水|醣類|脂肪|油脂|能量|每一?份|份量|重量|容量|淨重|營養|[\d零〇一二兩三四五六七八九十百千]+(?:點[\d零〇一二三四五六七八九]+)?(?:大卡|卡|克|公克|毫升)/.exec(raw);
+      const raw = String(text || '').replace(/\s+/g, ''), m = /熱量|蛋白|碳水|醣類|脂肪|油脂|能量|鈉|飽和|反式|膳食纖維|每一?份|份量|重量|容量|淨重|營養|[\d零〇一二兩三四五六七八九十百千]+(?:點[\d零〇一二三四五六七八九]+)?(?:大卡|卡|克|公克|毫升)/.exec(raw);
       let n = (m ? raw.slice(0, m.index) : '').replace(/[，,、。：:！!？?]/g, '').replace(/^(?:我要)?(?:新增|加入|記錄?|紀錄)?(?:一個|一下)?(?:這個|這是|品名是?|是)?/, '').replace(/(?:的|它|他)?(?:營養標示|標示)?(?:是|有)?$/, '').replace(/[\d零〇一二兩三四五六七八九十]+(?:份|個|包|盒|瓶|罐|條|片|顆)$/, '');
       if (n.length >= 2 && n.length <= 30) out.n = n;
     }
@@ -704,13 +749,15 @@
     const r = nutriFromSpeech(text), set = [], box = $('#nfheard');
     const put = (id, v, lab) => { const i = $(id); if (i && v != null) { i.value = v; set.push(lab); } };
     put('#nf-n', r.n, '名稱'); put('#nf-g', r.g, NFLIQ || r.liq ? '每份容量' : '每份重量'); put('#nf-k', r.k, '熱量'); put('#nf-p', r.p, '蛋白質'); put('#nf-c', r.c, '碳水'); put('#nf-f', r.f, '脂肪');
+    if (NX.some(([k]) => r[k] != null)) { const d = $('#nfmore'); if (d) d.open = true; }
+    for (const [k, n] of NX) put('#nf-' + k, r[k], n);
     if (r.liq != null && !!r.liq !== NFLIQ) { const b = $(`#nf-liq button[data-v="${r.liq}"]`); if (b) b.click(); }
     if (box) { box.classList.remove('ph'); box.innerHTML = '「' + esc(text) + '」<br>' + (set.length ? '已填入：' + set.join('、') + '，請對一下再存' : '沒聽出數字，可以說「熱量 250 蛋白質 8」這樣'); }
   }
   function startNfRec() {
     const b = $('#nfmic'), box = $('#nfheard');
     listen({
-      onStart: () => { if (b) b.classList.add('live'); if (box) box.textContent = '正在聽…照包裝念：每份幾克、熱量、蛋白質、碳水、脂肪，念完點一下按鈕'; },
+      onStart: () => { if (b) b.classList.add('live'); if (box) box.textContent = '正在聽…照包裝念：每份幾克、熱量、蛋白質、碳水、脂肪（有的話再念糖、鈉），念完點一下按鈕'; },
       onText: t => { if (box) box.textContent = t; },
       onDone: t => { if (b) b.classList.remove('live'); if (!$('#nfmic')) return; if (t) nfFill(t); else if (box) box.textContent = '沒聽到聲音，再點一下試試'; },
       onErr: e => { if (b) b.classList.remove('live'); if (box) box.textContent = micErr(e); },
@@ -764,6 +811,7 @@
         <div class="row"><span>實際</span>${logged.length ? stack(ap * 4, ac * 4, af * 9) : '<div class="stack"></div>'}</div>
         <div class="row"><span>目標</span>${stack(T.p * 4, T.c * 4, T.f * 9, 'ghost')}</div>
         <div class="legend"><b class="kp">蛋白質 ${r0(ap)} g</b><b class="kc">碳水 ${r0(ac)} g</b><b class="kf">脂肪 ${r0(af)} g</b></div></div>
+      ${logged.length ? nxCard({ ...Object.fromEntries(NXK.map(k => [k, avg(k)])), nmiss: logged.reduce((x, d) => x + (d.t.nmiss || 0), 0) }, T, true) : ''}
       <p class="note" style="text-align:center">點任何一天的長條可以回去看那天的紀錄</p></div>`;
   }
 
@@ -906,7 +954,7 @@
         const d = S.date; toast(`${ne.name} ${ne.label} 已記到${mealName(m)}`, () => { removeEntry(ne.id, d); renderResults(); }); break; }
       case 'copymeal': { const d = S.date, r = copyMeal(el.dataset.meal, d); if (!r) break; render();
         toast(`已記上${shortDate(r.pm.k) === '昨天' ? '昨天' : ' ' + shortDate(r.pm.k) + ' '}的${mealName(el.dataset.meal)} ${r.added.length} 樣`, () => { r.added.forEach(e => removeEntry(e.id, d)); render(); }); break; }
-      case 'edit': case 'vredit': { const f = findEntry(el.dataset.id); if (!f) break; const e = f.e; const food = foodById(e.fid) || { id: e.fid, name: e.name, alias: [], kcal: e.kcal / e.grams * 100, p: e.p / e.grams * 100, c: e.c / e.grams * 100, f: e.f / e.grams * 100, units: [{ n: '份', g: e.grams }] }; openQty(food, { meal: f.meal, editId: e.id, entry: e, fromVoice: a === 'vredit' }); break; }
+      case 'edit': case 'vredit': { const f = findEntry(el.dataset.id); if (!f) break; const e = f.e; const food = foodById(e.fid) || { id: e.fid, name: e.name, alias: [], kcal: e.kcal / e.grams * 100, p: e.p / e.grams * 100, c: e.c / e.grams * 100, f: e.f / e.grams * 100, ...Object.fromEntries(Object.entries(pickNx(e)).map(([k, v]) => [k, v / e.grams * 100])), units: [{ n: '份', g: e.grams }] }; openQty(food, { meal: f.meal, editId: e.id, entry: e, fromVoice: a === 'vredit' }); break; }
       case 'vback': if (LR) drawResult(LR.text, LR.added, LR.unknown); else closeSheet(); break;
       case 'qunit': { const i = +el.dataset.i; if (i === Q.unit) break; const g = qGrams(); Q.unit = i; Q.amount = i < 0 ? r0(g) || 100 : 1; drawQty(); break; }
       case 'qmeal': Q.meal = el.dataset.meal; Q.amount = $('#qamt').value; drawQty(); break;
@@ -933,7 +981,7 @@
       case 'rnew': openRecipe(null); break;
       case 'redit': openRecipe(el.dataset.rid); break;
       case 'rfrom': { const d = S.batchDate || S.date; const items = (S.lastBatch || []).map(id => findEntry(id, d)).filter(Boolean).map(({ e }) => { const f = foodById(e.fid), x = 100 / e.grams;
-          return { fid: e.fid, name: e.name, grams: e.grams, kcal: f ? f.kcal : r1(e.kcal * x), p: f ? f.p : r1(e.p * x), c: f ? f.c : r1(e.c * x), f: f ? f.f : r1(e.f * x), ...(e.unit ? { unit: e.unit, amount: e.amount } : {}) }; });
+          return { fid: e.fid, name: e.name, grams: e.grams, kcal: f ? f.kcal : r1(e.kcal * x), p: f ? f.p : r1(e.p * x), c: f ? f.c : r1(e.c * x), f: f ? f.f : r1(e.f * x), ...(f ? pickNx(f) : Object.fromEntries(Object.entries(pickNx(e)).map(([k, v]) => [k, nxR(k, v * x)]))), ...(e.unit ? { unit: e.unit, amount: e.amount } : {}) }; });
         openRecipe(null, items); setTimeout(() => { const n = $('#re-n'); if (n) n.focus(); }, 80); break; }
       case 'reing': { reKeep(); const i = +el.dataset.i; if (i >= 0) { const it = RE.items[i]; openQty(ingFood(it), { ing: i, entry: it }); } else { const f = foodById(el.dataset.fid); if (f) openQty(f, { ing: -1 }); } break; }
       case 'redel': reKeep(); RE.items.splice(+el.dataset.i, 1); drawRecipe(); break;
@@ -1038,12 +1086,13 @@
   const strv = (v, max = 120) => String(v == null ? '' : v).slice(0, max);
   const idv = v => strv(v, 80); // 畫面上用到 id 的地方都有跳脫
   const isDay = k => /^\d{4}-\d{2}-\d{2}$/.test(k);
-  const cleanEntry = e => e && typeof e === 'object' && numv(e.grams) > 0 ? { id: idv(e.id) || uid(), fid: idv(e.fid), name: strv(e.name), grams: numv(e.grams), label: strv(e.label), kcal: r0(numv(e.kcal)), p: numv(e.p), c: numv(e.c), f: numv(e.f),
+  const cleanNx = o => { const r = {}; for (const k of NXK) if (o[k] != null && isFinite(+o[k]) && +o[k] >= 0) r[k] = +o[k]; return r; };
+  const cleanEntry = e => e && typeof e === 'object' && numv(e.grams) > 0 ? { id: idv(e.id) || uid(), fid: idv(e.fid), name: strv(e.name), grams: numv(e.grams), label: strv(e.label), kcal: r0(numv(e.kcal)), p: numv(e.p), c: numv(e.c), f: numv(e.f), ...cleanNx(e),
     ...(e.unit ? { unit: strv(e.unit, 10), amount: numv(e.amount, 1) } : {}), ...(e.recipe ? { recipe: strv(e.recipe) } : {}), ...(e.liq ? { liq: 1 } : {}) } : null;
   const cleanFood = f => { if (!f || typeof f !== 'object' || !strv(f.name).trim()) return null; const units = (Array.isArray(f.units) ? f.units : []).map(u => ({ n: strv(u && u.n, 10) || '份', g: numv(u && u.g) })).filter(u => u.g > 0);
-    return { id: idv(f.id) || 'c_' + uid(), name: strv(f.name), alias: (Array.isArray(f.alias) ? f.alias : []).map(x => strv(x, 40)), kcal: numv(f.kcal), p: numv(f.p), c: numv(f.c), f: numv(f.f), units: units.length ? units : [{ n: '份', g: 100 }], cat: strv(f.cat, 20) || '自訂',
+    return { id: idv(f.id) || 'c_' + uid(), name: strv(f.name), alias: (Array.isArray(f.alias) ? f.alias : []).map(x => strv(x, 40)), kcal: numv(f.kcal), p: numv(f.p), c: numv(f.c), f: numv(f.f), ...cleanNx(f), units: units.length ? units : [{ n: '份', g: 100 }], cat: strv(f.cat, 20) || '自訂',
       ...(f.barcode ? { barcode: strv(f.barcode, 14).replace(/\D/g, '') } : {}), ...(f.liq != null ? { liq: f.liq ? 1 : 0 } : {}) }; };
-  const cleanRecipe = r => { if (!r || typeof r !== 'object' || !strv(r.name).trim()) return null; const items = (Array.isArray(r.items) ? r.items : []).filter(it => it && numv(it.grams) > 0).map(it => ({ fid: idv(it.fid), name: strv(it.name), grams: numv(it.grams), kcal: numv(it.kcal), p: numv(it.p), c: numv(it.c), f: numv(it.f), ...(it.unit ? { unit: strv(it.unit, 10), amount: numv(it.amount, 1) } : {}) }));
+  const cleanRecipe = r => { if (!r || typeof r !== 'object' || !strv(r.name).trim()) return null; const items = (Array.isArray(r.items) ? r.items : []).filter(it => it && numv(it.grams) > 0).map(it => ({ fid: idv(it.fid), name: strv(it.name), grams: numv(it.grams), kcal: numv(it.kcal), p: numv(it.p), c: numv(it.c), f: numv(it.f), ...cleanNx(it), ...(it.unit ? { unit: strv(it.unit, 10), amount: numv(it.amount, 1) } : {}) }));
     return items.length ? { id: idv(r.id) || 'r_' + uid(), name: strv(r.name), alias: (Array.isArray(r.alias) ? r.alias : []).map(x => strv(x, 40)), yields: Math.max(0.1, numv(r.yields, 1)), items } : null; };
   function cleanBackup(d) {
     const P = d.profile, p = { ...DEF, custom: { ...DEF.custom } };

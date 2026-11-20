@@ -47,6 +47,8 @@ eq('q7', NL.parse('喝了一杯珍珠奶茶半糖', 12).items[0].sugar.n, '半�
 eq('q8', NL.parse('半糖珍奶一杯', 12).items[0].sugar.n, '半糖');
 eq('q9', NL.parse('一杯無糖綠茶和一杯珍奶', 12).items.map(i => i.sugar && i.sugar.n), [null, null]);
 eq('q10', NL.sugarVariant(FOODS.find(f => f.name === '珍珠奶茶'), '半糖').kcal, 60);
+eq('q10b', NL.sugarVariant(FOODS.find(f => f.name === '珍珠奶茶'), '無糖').sug < FOODS.find(f => f.name === '珍珠奶茶').sug, true);
+eq('nx1', FOODS.filter(f => f.na == null).length, 0);
 eq('q11', NL.parse('昨天晚餐吃了牛肉麵', 12).dayOffset, -1);
 eq('q12', NL.parse('前天早餐吃了稀飯', 12).dayOffset, -2);
 eq('q13', NL.parse('昨晚吃了雞腿便當', 12).items[0].meal, 'dinner');

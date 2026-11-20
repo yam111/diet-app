@@ -455,7 +455,7 @@
   function sugarVariant(food, n) {
     const h = SUGAR.find(x => x[0] === n); if (!h || h[1] === 1) return food;
     const cut = food.c * 0.85 * (1 - h[1]);
-    return { ...food, id: food.id + '@' + n, name: food.name + '（' + n + '）', c: Math.round((food.c - cut) * 10) / 10, kcal: Math.round(food.kcal - cut * 4), alias: [] };
+    return { ...food, id: food.id + '@' + n, name: food.name + '（' + n + '）', c: Math.round((food.c - cut) * 10) / 10, ...(food.sug != null ? { sug: Math.max(0, Math.round((food.sug - cut) * 10) / 10) } : {}), kcal: Math.round(food.kcal - cut * 4), alias: [] };
   }
 
   function fmt(n) { return (Math.round(n * 100) / 100).toString(); }
