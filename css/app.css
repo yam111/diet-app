@@ -223,6 +223,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;heigh
 .typebox input{flex:1;background:var(--s1);border:1px solid var(--line2);border-radius:15px;padding:13px 14px;font-size:16px;min-width:0}
 .typebox button{padding:0 18px;border-radius:15px;background:var(--s3);color:var(--gold2);font-size:14px;border:1px solid var(--line2)}
 .result .entry:first-of-type{border-top:0}
+.result .entry .n{cursor:pointer}
 .result .x{width:28px;height:28px;border-radius:50%;color:var(--muted);font-size:17px;flex:none;border:1px solid var(--line)}
 .badge{display:inline-block;font-size:10.5px;padding:1px 7px;border-radius:99px;border:1px solid var(--line2);color:var(--muted);margin-left:6px;vertical-align:1px}
 .unk{background:rgba(224,122,106,.08);border:1px solid rgba(224,122,106,.25);border-radius:15px;padding:11px 13px;font-size:13px;color:#e9b3a8;margin:12px 0;text-align:left}

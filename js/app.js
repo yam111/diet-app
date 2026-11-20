@@ -342,7 +342,7 @@
   // ---------- 份量面板（新增／修改共用） ----------
   let Q = null;
   function openQty(food, opt = {}) {
-    Q = { food, meal: opt.meal || S.meal || NL.mealByHour(new Date().getHours()), editId: opt.editId || null, fromSearch: !!opt.fromSearch, unit: 0, amount: 1, ing: opt.ing == null ? null : opt.ing };
+    Q = { food, meal: opt.meal || S.meal || NL.mealByHour(new Date().getHours()), editId: opt.editId || null, fromSearch: !!opt.fromSearch, fromVoice: !!opt.fromVoice, unit: 0, amount: 1, ing: opt.ing == null ? null : opt.ing };
     if (opt.entry) {
       const e = opt.entry; const ui = food.units.findIndex(u => e.unit === u.n);
       if (e.unit && ui >= 0) { Q.unit = ui; Q.amount = e.amount; } else { Q.unit = -1; Q.amount = r0(e.grams); }
@@ -352,7 +352,7 @@
   function qGrams() { const a = parseFloat(Q.amount) || 0; return Q.unit < 0 ? a : a * Q.food.units[Q.unit].g; }
   function drawQty() {
     const f = Q.food;
-    sheet(`${Q.fromSearch ? '<button class="backbtn" data-act="sback">‹ 回搜尋</button>' : ''}<h2>${esc(f.name)}</h2><div class="sub">每 100 ${gu(f)} ${f.kcal} 大卡 · 蛋白質 ${f.p}・碳水 ${f.c}・脂肪 ${f.f}</div>
+    sheet(`${Q.fromSearch ? '<button class="backbtn" data-act="sback">‹ 回搜尋</button>' : Q.fromVoice && LR ? '<button class="backbtn" data-act="rback">‹ 回剛剛記的</button>' : ''}<h2>${esc(f.name)}</h2><div class="sub">每 100 ${gu(f)} ${f.kcal} 大卡 · 蛋白質 ${f.p}・碳水 ${f.c}・脂肪 ${f.f}</div>
       <div class="chips" style="margin:0 -20px 6px;padding:0 20px">${f.units.map((u, i) => `<button class="chip ${Q.unit === i ? 'on' : ''}" data-act="qunit" data-i="${i}">${esc(u.n)}</button>`).join('')}<button class="chip ${Q.unit < 0 ? 'on' : ''}" data-act="qunit" data-i="-1">${gu(f)}</button></div>
       <div class="qbig"><input id="qamt" type="number" inputmode="decimal" step="any" value="${Q.amount}"><span>${Q.unit < 0 ? gu(f) : esc(f.units[Q.unit].n)}</span></div>
       <div class="qg" id="qg"></div>
@@ -383,6 +383,9 @@
     if (old) removeEntry(Q.editId);
     const ne = addEntry(Q.food, g, label, Q.meal, extra);
     if (old && old.meal === Q.meal) { const list = day(S.date)[Q.meal]; list.splice(list.indexOf(ne), 1); list.splice(old.i, 0, ne); saveLog(); } // 改份量不要跳到最下面
+    if (Q.fromVoice && LR && old) { // 從語音結果點進來改的：改完回到結果清單
+      const i = LR.added.findIndex(x => x.e.id === Q.editId); if (i >= 0) LR.added[i] = { e: ne, it: { ...LR.added[i].it, meal: Q.meal, est: false } };
+      S.lastBatch = (S.lastBatch || []).map(id => id === Q.editId ? ne.id : id); render(); drawResult(LR.text, LR.added, LR.unknown); return toast('已更新'); }
     closeSheet(); toast(Q.editId ? '已更新' : '已加入' + mealName(Q.meal));
     if (Q.editId && old && old.meal === Q.meal) render(); else goMeal(Q.meal, ne.id);
   }
@@ -602,39 +605,42 @@
       <div class="typebox"><input id="vtext" type="text" placeholder="或直接打字：雞胸肉150克 白飯一碗" enterkeyhint="done"><button data-act="vsend">記錄</button></div></div>`, stopRec);
     if (SR) startRec();
   }
-  // 瀏覽器講完一句（停頓一下）就會自己停，這裡停了就馬上接著聽、把每段接起來；
-  // 停下來約 4 秒沒再講，或點一下麥克風，才算講完。最長 90 秒。
+  // 一直聽（continuous），慢慢講、中間停頓都不會斷；瀏覽器自己停了（有些手機一段時間會停）就馬上接著聽。
+  // 停下來約 7 秒沒再講，或點一下麥克風，才算講完。一開始沒講話等 12 秒；最長 2 分鐘。
   let LS = null;
+  const SIL = 7000;
+  // 把一段辨識結果接起來；有些 Android 會把「我」「我吃」「我吃了」都當成結果，遇到這種用長的蓋掉短的
+  function joinRes(list) { let out = ''; for (const t of list) { if (!t) continue; if (out && t.startsWith(out)) out = t; else if (!out.endsWith(t)) out += t; } return out; }
   function listen(o) {
     stopRec();
-    const st = LS = { acc: '', cur: '', t0: Date.now(), last: Date.now(), any: false, done: false, quick: 0 };
+    const st = LS = { acc: '', cur: '', t0: Date.now(), last: Date.now(), any: false, done: false, quick: 0, n: 0 };
     const text = () => (st.acc && st.cur ? st.acc + '，' + st.cur : st.acc + st.cur).trim();
     const end = () => { st.done = true; clearInterval(st.timer); if (LS === st) LS = null; if (rec) { try { rec.onend = null; rec.abort(); } catch (e) { } rec = null; } };
     st.finish = () => { if (st.done) return; const t = text(); end(); o.onDone(t); };
     const one = () => {
       if (st.done) return;
       let r; try { r = new SR(); } catch (e) { return st.finish(); }
-      const t1 = Date.now(); rec = r; r.lang = 'zh-TW'; r.interimResults = true; r.continuous = false; r.maxAlternatives = 1;
-      r.onresult = ev => { let x = ''; for (const y of ev.results) x += y[0].transcript; st.cur = x; st.last = Date.now(); st.any = true; o.onText(text()); };
+      const t1 = Date.now(); st.n++; rec = r; r.lang = 'zh-TW'; r.interimResults = true; r.continuous = true; r.maxAlternatives = 1; st.fatal = null;
+      r.onresult = ev => { const x = joinRes([...ev.results].map(y => y[0].transcript)); if (x !== st.cur) { st.cur = x; st.any = true; } st.last = Date.now(); o.onText(text()); };
       r.onerror = ev => { if (/not-allowed|audio-capture/.test(ev.error)) st.fatal = ev.error; else if (ev.error !== 'no-speech' && ev.error !== 'aborted') st.err = ev.error; };
       r.onend = () => {
         if (rec === r) rec = null; if (st.done) return;
         const t = text(); st.acc = t; st.cur = '';
-        if (st.fatal) { end(); return o.onErr(st.fatal); }
-        st.quick = Date.now() - t1 < 400 ? st.quick + 1 : 0; // 一直秒停（辨識服務出問題）就別再試
+        if (st.fatal) { if (st.n > 1 || t) return st.finish(); end(); return o.onErr(st.fatal); } // 第一次就被擋＝真的沒權限；後面才被擋就把聽到的送出
+        st.quick = Date.now() - t1 < 500 ? st.quick + 1 : 0; // 一直秒停（辨識服務出問題）就別再試
         if (st.quick >= 4) { if (t) return st.finish(); end(); return o.onErr(st.err || 'network'); }
-        setTimeout(one, 50);
+        setTimeout(one, 30);
       };
       try { r.start(); } catch (e) { setTimeout(one, 300); }
     };
-    st.timer = setInterval(() => { const now = Date.now(); if ((st.any ? now - st.last > 4000 : now - st.t0 > 10000) || now - st.t0 > 90000) st.finish(); }, 250);
+    st.timer = setInterval(() => { const now = Date.now(); if ((st.any ? now - st.last > SIL : now - st.t0 > 12000) || now - st.t0 > 120000) st.finish(); }, 250);
     o.onStart(); one();
   }
   const micErr = e => e === 'not-allowed' || e === 'service-not-allowed' ? '麥克風沒有開放權限，請到瀏覽器設定允許' : '語音辨識暫時不能用（' + e + '）';
   function startRec() {
     const o = $('#orb'), h = () => $('#heard');
     listen({
-      onStart: () => { heard = ''; if (o) o.classList.add('live'); if (h()) { h().classList.add('ph'); h().textContent = '正在聽…慢慢講沒關係，講完點一下麥克風'; } },
+      onStart: () => { heard = ''; if (o) o.classList.add('live'); if (h()) { h().classList.add('ph'); h().textContent = '正在聽…慢慢講、停一下想都沒關係，講完點一下麥克風送出'; } },
       onText: t => { heard = t; if (h()) { h().classList.remove('ph'); h().textContent = t; } },
       onDone: t => { if (o) o.classList.remove('live'); if (!$('#orb')) return; if (t) submitText(t); else if (h()) { h().classList.add('ph'); h().textContent = '沒聽到聲音，再點一下麥克風試試'; } },
       onErr: e => { if (o) o.classList.remove('live'); if (h()) { h().classList.add('ph'); h().textContent = micErr(e) + '，可以用下面打字'; } },
@@ -695,17 +701,19 @@
     if (date !== S.date && added.length) S.date = date; // 跳到那天，回到今日畫面就看得到剛記的
     drawResult(text, added, r.unknown); render();
   }
+  let LR = null; // 剛剛語音記的結果（點進去改完回來用）
   function drawResult(text, added, unknown) {
+    LR = { text, added, unknown };
     const sum = added.reduce((a, x) => a + x.e.kcal, 0);
     const meals = [...new Set(added.map(a => mealName(a.it.meal)))].join('、');
     sheet(`<div class="result">${added.length ? `<div class="okmark"><svg viewBox="0 0 24 24"><path d="m5 12.500 4.500 4.500L19 7.500"/></svg></div>
       <h2 style="text-align:center">已記錄 ${added.length} 項 · ${sum} 大卡</h2><div class="sub" style="text-align:center">記到${S.date !== today() ? dateLabel(S.date) + ' 的' : ''}${meals}「${esc(text)}」</div>`
       : `<h2>沒有認出食物</h2><div class="sub">「${esc(text)}」</div>`}
-      <div id="rlist">${added.map(a => `<div class="entry" data-rid="${a.e.id}"><span class="n"><b>${esc(a.e.name)}${a.it.est ? '<span class="badge">估算份量</span>' : ''}</b><small>${mealName(a.it.meal)} · ${esc(eLabel(a.e))}${isAmt(a.e.label) ? '' : ' · ' + r0(a.e.grams) + ' ' + eu(a.e)}</small></span><span class="k">${a.e.kcal}<small>蛋 ${r0(a.e.p)} · 碳 ${r0(a.e.c)} · 脂 ${r0(a.e.f)}</small></span><button class="x" data-act="rdel" data-id="${a.e.id}" aria-label="移除">×</button></div>`).join('')}</div>
+      <div id="rlist">${added.map(a => `<div class="entry" data-rid="${a.e.id}"><span class="n" data-act="redit" data-id="${a.e.id}"><b>${esc(a.e.name)}${a.it.est ? '<span class="badge">估算份量</span>' : ''}</b><small>${mealName(a.it.meal)} · ${esc(eLabel(a.e))}${isAmt(a.e.label) ? '' : ' · ' + r0(a.e.grams) + ' ' + eu(a.e)}</small></span><span class="k">${a.e.kcal}<small>蛋 ${r0(a.e.p)} · 碳 ${r0(a.e.c)} · 脂 ${r0(a.e.f)}</small></span><button class="x" data-act="rdel" data-id="${a.e.id}" aria-label="移除">×</button></div>`).join('')}</div>
       ${unknown.length ? `<div class="unk">這幾個資料庫裡找不到，點一下可以搜尋或自己新增：<br>${unknown.map(u => `<button data-act="unk" data-q="${esc(u)}">${esc(u)}</button>`).join('')}</div>` : ''}
       <div class="btnrow" style="margin-top:16px"><button class="btn ghost" data-act="voice">再說一次</button><button class="btn" data-act="close">完成</button></div>
       ${added.length > 1 ? '<button class="linkbtn" data-act="rfrom">把這幾樣存成食譜，下次說菜名就好</button>' : ''}
-      ${added.length ? '<p class="note" style="text-align:center;margin-top:12px">份量不對？回到今日點那一筆就能改</p>' : ''}</div>`);
+      ${added.length ? '<p class="note" style="text-align:center;margin-top:12px">份量或食物不對？點那一筆就能改</p>' : ''}</div>`);
   }
 
   // ---------- 趨勢 ----------
@@ -865,7 +873,8 @@
         const d = S.date; toast(`${ne.name} ${ne.label} 已記到${mealName(m)}`, () => { removeEntry(ne.id, d); renderResults(); }); break; }
       case 'copymeal': { const d = S.date, r = copyMeal(el.dataset.meal, d); if (!r) break; render();
         toast(`已記上${shortDate(r.pm.k) === '昨天' ? '昨天' : ' ' + shortDate(r.pm.k) + ' '}的${mealName(el.dataset.meal)} ${r.added.length} 樣`, () => { r.added.forEach(e => removeEntry(e.id, d)); render(); }); break; }
-      case 'edit': { const f = findEntry(el.dataset.id); if (!f) break; const e = f.e; const food = foodById(e.fid) || { id: e.fid, name: e.name, alias: [], kcal: e.kcal / e.grams * 100, p: e.p / e.grams * 100, c: e.c / e.grams * 100, f: e.f / e.grams * 100, units: [{ n: '份', g: e.grams }] }; openQty(food, { meal: f.meal, editId: e.id, entry: e }); break; }
+      case 'edit': case 'redit': { const f = findEntry(el.dataset.id); if (!f) break; const e = f.e; const food = foodById(e.fid) || { id: e.fid, name: e.name, alias: [], kcal: e.kcal / e.grams * 100, p: e.p / e.grams * 100, c: e.c / e.grams * 100, f: e.f / e.grams * 100, units: [{ n: '份', g: e.grams }] }; openQty(food, { meal: f.meal, editId: e.id, entry: e, fromVoice: a === 'redit' }); break; }
+      case 'rback': if (LR) drawResult(LR.text, LR.added, LR.unknown); else closeSheet(); break;
       case 'qunit': { const i = +el.dataset.i; if (i === Q.unit) break; const g = qGrams(); Q.unit = i; Q.amount = i < 0 ? r0(g) || 100 : 1; drawQty(); break; }
       case 'qmeal': Q.meal = el.dataset.meal; Q.amount = $('#qamt').value; drawQty(); break;
       case 'qsave': Q.amount = $('#qamt').value; saveQty(); break;
@@ -878,7 +887,7 @@
       case 'bcgo': lookupBarcode($('#bc-in').value); break;
       case 'nfsave': saveNewFood(); break;
       case 'nfliq': NFLIQ = el.dataset.v === '1'; document.querySelectorAll('#nf-liq button').forEach(b => b.classList.toggle('on', b === el)); $('#nf-gl').textContent = NFLIQ ? '每份容量' : '每份重量'; $('#nf-gu').textContent = NFLIQ ? '毫升' : '克'; break;
-      case 'cfedit': { const f = foodById(el.dataset.fid); if (!f) break; const from = el.dataset.from || (Q && Q.editId ? 'entry' : 'qty'); const q = from === 'entry' ? { meal: Q.meal, editId: Q.editId, entry: findEntry(Q.editId) && findEntry(Q.editId).e } : null;
+      case 'cfedit': { const f = foodById(el.dataset.fid); if (!f) break; const from = el.dataset.from || (Q && Q.editId ? 'entry' : 'qty'); const q = from === 'entry' ? { meal: Q.meal, editId: Q.editId, entry: findEntry(Q.editId) && findEntry(Q.editId).e, fromVoice: Q.fromVoice } : null;
         openNewFood('', '', f, { from, q, back: from === 'me' || !Q ? null : { f: Q.food, q: q || { meal: Q.meal, fromSearch: Q.fromSearch, ing: Q.ing } } }); break; }
       case 'nfback': { const b = NFO.back; NFO = {}; NFED = null; if (b) openQty(foodById(b.f.id) || b.f, b.q); else closeSheet(); break; }
       case 'rcdel': { const old = S.recent.slice(), f = foodById(el.dataset.fid); S.recent = S.recent.filter(x => x !== el.dataset.fid); save('SG_RECENT', S.recent); renderResults();
@@ -902,7 +911,7 @@
       case 'voice': openVoice(); break;
       case 'mic': if (!SR) break; if (LS) LS.finish(); else startRec(); break;
       case 'vsend': submitText($('#vtext').value); break;
-      case 'rdel': removeEntry(el.dataset.id, S.batchDate || S.date); el.closest('.entry').remove(); render(); if (!$('#rlist .entry')) closeSheet(); break;
+      case 'rdel': if (LR) LR.added = LR.added.filter(x => x.e.id !== el.dataset.id); removeEntry(el.dataset.id, S.batchDate || S.date); el.closest('.entry').remove(); render(); if (!$('#rlist .entry')) closeSheet(); break;
       case 'unk': closeSheet(); S.tab = 'today'; render(); openSearch(null, el.dataset.q); break;
       case 'close': closeSheet(); break;
       case 'start': S.profile = draft; save('SG_PROFILE', S.profile); S.tab = 'today'; view.scrollTop = 0; render(); toast('設定完成，開始記錄吧'); break;
