@@ -133,9 +133,10 @@ eq('m9', P('義美豆漿一瓶'), '無糖豆漿:400:l');
   eq('b21 品牌叫法', SB('茶太珍奶')[0], '日出茶太珍珠奶茶');
   eq('b22 品牌＋品項', SB('壽司郎茶碗蒸')[0], '壽司郎茶碗蒸');
   eq('b23 不講品牌', SB('波堤').includes('蜜糖波堤'), true);
-  eq('b24 數值合理', BX.every(f => f.kcal > 0 && f.kcal < 950 && Math.abs(4 * f.p + 4 * f.c + 9 * f.f - f.kcal) / f.kcal < 0.35), true);
+  eq('b24 數值合理', BX.every(f => f.kcal === 0 ? f.p + f.c + f.f === 0 : f.kcal > 0 && f.kcal < 950 && Math.abs(4 * f.p + 4 * f.c + 9 * f.f - f.kcal) / f.kcal < 0.35), true);
   eq('b25 全家官方', BX.filter(f => f.brand.includes('全家') && f.st === '官網標示').length >= 200, true);
   eq('b26 全家雞胸', SB('全家雞胸').length >= 5, true);
+  eq('b27 無糖茶', SB('原萃台灣青茶')[0], '原萃台灣青茶');
 }
 // 11/20 自己掃過／填過的品項：只講一部分名字也對得到，內建常見名稱照舊
 {
