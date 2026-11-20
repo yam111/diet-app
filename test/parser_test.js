@@ -172,4 +172,8 @@ eq('m9', P('義美豆漿一瓶'), '無糖豆漿:400:l');
   eq('l7', NL.isLiquid({ name: '自己打的蔬果昔', liq: 1 }), true);
   eq('l8', [NL.isLiquid({ name: '光泉無加糖鮮豆漿936ml', cat: '超商' }), NL.isLiquid({ name: '阜杭豆漿-經典飯糰', cat: '超商' }), NL.isLiquid({ name: '50嵐布丁奶茶', cat: '手搖飲' }), NL.isLiquid({ name: '布丁', cat: '手搖飲' })].join(), 'true,false,true,false');
 }
+// 11/20 單講「麵」、菜名＋麵
+eq('m1', P('吃了麻婆豆腐麵', 12), '麻婆豆腐:200:l 白麵條:200:l');
+eq('m2', P('麵', 12), '白麵條:200:l');
+eq('m3', P('麵兩碗', 12), '白麵條:400:l');
 console.log(fail ? fail + ' FAILED' : 'ALL PASS', '| foods:', FOODS.length);
