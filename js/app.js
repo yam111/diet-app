@@ -918,5 +918,18 @@
   // 請瀏覽器不要自動清掉紀錄（Safari 對很久沒開的網站會清本機資料）
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => { });
+  // 在 LINE／FB／IG 裡面點連結開：資料存在那個 App 的內建瀏覽器，跟 Safari／Chrome、主畫面圖示分開，下次換個方式開就像「資料不見」
+  (function inAppGuard() {
+    const ua = navigator.userAgent, isLine = /\bLine\//i.test(ua), app = isLine ? 'LINE' : /FBAN|FBAV|FB_IAB|Messenger/i.test(ua) ? 'Facebook' : /Instagram/i.test(ua) ? 'Instagram' : '';
+    if (!app || load('SG_INAPP_OK', 0)) return;
+    const has = !!S.profile || Object.keys(S.log).length > 0, ext = location.origin + location.pathname + '?openExternalBrowser=1';
+    // 還沒記過東西：LINE 直接改用手機瀏覽器開（只試一次，避免來回跳）
+    if (!has && isLine && !/openExternalBrowser/.test(location.search) && !sessionStorage.getItem('sg_ext')) { sessionStorage.setItem('sg_ext', '1'); location.replace(ext); return; }
+    const bar = document.createElement('div'); bar.id = 'inapp';
+    bar.innerHTML = `<b>你現在是在 ${app} 裡面開食光</b><p>${has ? `紀錄存在 ${app} 裡，改用 Safari／Chrome 或主畫面圖示開會看不到。想換過去：先到「我的」匯出備份，用瀏覽器開之後再匯入。` : `在這裡記的資料容易不見，請用 Safari／Chrome 開${isLine ? '' : '（點右上角「⋯」→「用瀏覽器開啟」）'}，再加到主畫面。`}</p>
+      <div>${isLine ? `<a href="${ext}">用瀏覽器開</a>` : ''}<button type="button">${has ? '我知道了，繼續在這裡用' : '先在這裡看看'}</button></div>`;
+    bar.querySelector('button').onclick = () => { save('SG_INAPP_OK', 1); bar.remove(); };
+    $('#app').prepend(bar);
+  })();
   render();
 })();
