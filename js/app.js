@@ -133,7 +133,8 @@
     const bc = String(d.barcode || '').replace(/\D/g, ''); if (bc && (bc.length < 8 || bc.length > 14)) return no('條碼長度不對');
     const name = String(d.name || '').replace(/[\u0000-\u001f<>]/g, '').replace(/^[=+\-@]+/, '').trim().slice(0, 40); if (!name) return no('名稱是空的');
     const num = (v, lo, hi) => { v = Number(v); return isFinite(v) && v >= lo && v <= hi ? Math.round(v * 10) / 10 : NaN; };
-    const g = num(d.g, 1, 3000), k = num(d.kcal, 0, 950), p = num(d.p, 0, 100), c = num(d.c, 0, 100), f = num(d.f, 0, 100);
+    // 每份不到 1 克（調味料常見 0.5 克）：伺服器只收 1 克以上，送 1 克（每 100 克的數字不變）
+    const g = num(Math.max(1, Number(d.g)), 1, 3000), k = num(d.kcal, 0, 950), p = num(d.p, 0, 100), c = num(d.c, 0, 100), f = num(d.f, 0, 100);
     if (isNaN(g)) return no('每份重量不合理（要 1～3000）'); if (isNaN(k)) return no('熱量太高（每 100 克超過 950 大卡），可能每份重量填錯');
     if ([p, c, f].some(isNaN) || p + c + f > 100.5) return no('蛋白質＋碳水＋脂肪比每份重量還重，可能每份重量填錯');
     if (p + c + f > 0 && Math.abs(4 * p + 4 * c + 9 * f - k) > Math.max(40, k * 0.3)) return no('熱量跟蛋白質／碳水／脂肪算起來差太多，請對一下包裝');
@@ -168,7 +169,7 @@
           try { await Promise.race([m.setDoc(m.doc(db, 'foods', fsId(r)), { r, t: m.serverTimestamp() }), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 10000))]); }
           catch (e) { if (!/permission/i.test(e.code || e.message || '')) throw e; }
         }
-        await fetch(SHARE_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(it) });
+        await fetch(SHARE_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ ...it, g: Math.max(1, Number(it.g) || 0) }) });
         const j = JSON.stringify(it); save('SG_SHARE_Q', load('SG_SHARE_Q', []).filter(x => JSON.stringify(x) !== j));
       }
     } catch (e) { }
@@ -177,6 +178,10 @@
   setTimeout(flushShare, 3000); window.addEventListener('online', flushShare);
   // 這版以前新增、沒條碼的自訂食物從來沒分享過：補送一次
   if (!load('SG_SHARE_OLD', 0)) setTimeout(() => { for (const f of S.custom.slice().reverse()) if (!f.barcode) shareFood(f); save('SG_SHARE_OLD', 1); }, 4000);
+  // v50 以前沒送上去的（每份不到 1 克等被擋掉）、共用庫裡也還沒有的沒條碼自訂食物：再補送一次
+  // 要等抓到伺服器上的清單才知道哪些沒上去
+  function resendMissing() { if (load('SG_SHARE_V50', 0)) return; if (!gasItems && !fsItems) return setTimeout(resendMissing, 5000); const have = new Set([...(gasItems || []), ...(fsItems || [])].map(r => r[1])); for (const f of S.custom.slice().reverse()) if (!f.barcode && !have.has(f.name)) shareFood(f); save('SG_SHARE_V50', 1); }
+  setTimeout(resendMissing, 6000);
   rebuildFoods();
 
   // ---------- 計算 ----------
