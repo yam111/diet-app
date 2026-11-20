@@ -133,6 +133,27 @@
   const SYN = [['個', '顆', '粒'], ['條', '根', '支', '隻', '尾'], ['片', '塊'], ['份', '盤', '客', '套'], ['瓶', '罐'], ['盒', '包'], ['匙', '湯匙', '大匙'], ['小匙', '茶匙']];
   const GENERIC = { 匙: 15, 湯匙: 15, 大匙: 15, 茶匙: 5, 小匙: 5, 碗: 200, 杯: 300, 盤: 300, 口: 15, 把: 20 };
 
+  // 液體（飲料、湯、鮮奶…）份量用「毫升」顯示；計算一樣用克（1 毫升當 1 克）
+  const LIQ_CAT = /^(手搖飲|咖啡|飲料|湯)$/;
+  const EATS = /泡芙|巧克力-|三明治|帕[尼里]尼|可頌|麵包|蛋糕|吐司|土司|司康|貝果|堡|鬆餅|甜甜圈|飯糰|飯|麵|粥|餃|包子|湯圓|茶葉蛋|茶碗蒸|奶油|奶酥|乳酪|起司|乾酪|腐乳|沙茶|酥|餅|派|捲|糖果|軟糖|巧克力$|冰淇淋$|霜淇淋|雪糕|冰棒|凝態/;
+  const POWDER = /粉$|奶粉|沖泡|即溶|三合一|二合一|茶包|膠囊|咖啡豆|錠|優格(?!飲)|乳清|蛋白粉|麥片|燕麥片|\d+\s*g\s*[xX×]/;
+  const TOPPING = /^(椰果|珍珠|波霸|粉圓|奶蓋|仙草|仙草凍|布丁|愛玉|芋圓|粉粿|茶凍|寒天)$/;
+  const LIQ_NAME = /(茶|咖啡|拿鐵|美式|豆漿|鮮奶|牛奶|鮮乳|牛乳|調味乳|保久乳|乳飲品|優酪乳|優酪|發酵乳|養樂多|多多|汁|可樂|汽水|沙士|飲料|飲|酒|湯|水|米漿|奶昔|冰沙|可可|歐蕾|奶|乳|蘇打|豆奶|豆乳|卡布奇諾|摩卡|瑪奇朵|星冰樂)$/;
+  const VOL = /\d\s*(ml|毫升|cc|c\.c\.|l|公升)(?![a-z])/i;
+  function isLiquid(f) {
+    if (!f) return false;
+    if (f.liq != null) return !!f.liq;
+    if (f.recipe) return false;
+    const full = String(f.name || '');
+    let n = full.replace(/[（(].*?[)）]/g, '').replace(/\s*\d+(\.\d+)?\s*(ml|毫升|cc|c\.c\.|l|公升|入)\s*$/i, '').trim();
+    for (let i = 0; i < 3; i++) n = n.replace(/(原味|無加糖|無糖|低糖|微糖|半糖|全糖|低卡|.{0,4}(風味|口味))$/, '') || n;
+    if (EATS.test(n) || POWDER.test(full) || TOPPING.test(n)) return false;
+    if (VOL.test(full)) return true;
+    if (LIQ_CAT.test(f.cat || '')) return true;
+    return (f.cat !== '水果' || /汁$/.test(n)) && LIQ_NAME.test(n);
+  }
+  const gu = f => isLiquid(f) ? '毫升' : '克';
+
   // 數量＋單位 → 克數
   const SIZE = { 大: 1.3, 中: 1, 小: 0.7 };
   function toGrams(food, n, unit) {
@@ -406,7 +427,7 @@
       if (q) {
         const r = toGrams(ft.food, q.num, q.unit);
         grams = r.g; est = r.est;
-        label = q.gram ? Math.round(grams) + ' 克' : fmt(q.num) + ' ' + (q.unit || r.unit);
+        label = q.gram ? Math.round(grams) + ' ' + gu(ft.food) : fmt(q.num) + ' ' + (q.unit || r.unit);
       } else {
         const d = ft.food.units[0];
         grams = d.g; est = true; label = '1 ' + d.n + '（預設份量）';
@@ -459,5 +480,5 @@
     }
     return searchIn(q, list, limit);
   }
-  globalThis.NL = { setFoods, setBrandFoods, search, searchList, searchBrand, parse, cnNum, toGrams, mealByHour, sugarVariant };
+  globalThis.NL = { isLiquid, gu, setFoods, setBrandFoods, search, searchList, searchBrand, parse, cnNum, toGrams, mealByHour, sugarVariant };
 })();

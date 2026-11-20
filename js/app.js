@@ -170,18 +170,24 @@
     for (const m of MEALS) for (const e of d[m.k] || []) { t.kcal += e.kcal; t.p += e.p; t.c += e.c; t.f += e.f; t.n++; }
     return t;
   }
+  // 液體（飲料、湯…）用毫升顯示，其他用克；計算都以克（1 毫升≈1 克）
+  const gu = f => NL.gu(f || {});
+  const isAmt = l => /克|毫升/.test(l);
+  const entryLiq = e => e.liq != null ? !!e.liq : NL.isLiquid(foodById(e.fid) || { name: e.name });
+  const eu = e => entryLiq(e) ? '毫升' : '克';
+  const eLabel = e => entryLiq(e) ? String(e.label).replace(/(\d) 克/g, '$1 毫升') : e.label;
   function calc(food, grams) { const x = grams / 100; return { kcal: r0(food.kcal * x), p: r1(food.p * x), c: r1(food.c * x), f: r1(food.f * x) }; }
   // 吃了食譜 k 份：每樣食材照比例分開記（之後每樣都能單獨改）
   function logRecipe(r, k, meal, date = S.date) {
     const s = k / (r.yields || 1);
     const out = r.items.map(it => { const food = ingFood(it), g = it.grams * s;
       const extra = it.unit ? { unit: it.unit, amount: Math.round(it.amount * s * 100) / 100 } : {};
-      return addEntry(food, g, r.name + '・' + (it.unit ? extra.amount + ' ' + it.unit : r0(g) + ' 克'), meal, { ...extra, recipe: r.name }, date); });
+      return addEntry(food, g, r.name + '・' + (it.unit ? extra.amount + ' ' + it.unit : r0(g) + ' ' + gu(food)), meal, { ...extra, recipe: r.name }, date); });
     S.recent = [r.id, ...S.recent.filter(x => x !== r.id)].slice(0, 12); save('SG_RECENT', S.recent);
     return out;
   }
   function addEntry(food, grams, label, meal, extra = {}, date = S.date) {
-    const e = { id: uid(), fid: food.id, name: food.name, grams: r1(grams), label, ...calc(food, grams), ...extra };
+    const e = { id: uid(), fid: food.id, name: food.name, grams: r1(grams), label, ...calc(food, grams), ...extra, ...(NL.isLiquid(food) ? { liq: 1 } : {}) };
     day(date)[meal].push(e); saveLog();
     const rid = food.id.split('@')[0];
     S.recent = [rid, ...S.recent.filter(x => x !== rid)].slice(0, 12); save('SG_RECENT', S.recent);
@@ -206,7 +212,7 @@
   }
   function quickLog(rid, meal) {
     const e = lastEntry(rid); const food = e && foodById(e.fid); if (!food) return null;
-    return addEntry(food, e.grams, e.unit ? e.amount + ' ' + e.unit : r0(e.grams) + ' 克', meal, e.unit ? { unit: e.unit, amount: e.amount } : {});
+    return addEntry(food, e.grams, e.unit ? e.amount + ' ' + e.unit : r0(e.grams) + ' ' + gu(food), meal, e.unit ? { unit: e.unit, amount: e.amount } : {});
   }
   function findEntry(id, date = S.date) { const d = day(date); for (const m of MEALS) { const i = d[m.k].findIndex(e => e.id === id); if (i >= 0) return { meal: m.k, i, e: d[m.k][i] }; } return null; }
   function removeEntry(id, date = S.date) { const f = findEntry(id, date); if (f) { day(date)[f.meal].splice(f.i, 1); saveLog(); } }
@@ -280,7 +286,7 @@
   }
   function swipeRow(e) { return `<div class="sw" data-id="${e.id}"><button class="swdel" data-act="swdel" data-id="${e.id}" tabindex="-1">刪除</button>${entryRow(e)}</div>`; }
   function entryRow(e) {
-    return `<button class="entry" data-act="edit" data-id="${e.id}"><span class="n"><b>${esc(e.name)}</b><small>${esc(e.label)}${/克/.test(e.label) ? '' : ' · ' + r0(e.grams) + ' 克'}</small></span><span class="k">${e.kcal}<small>蛋 ${r0(e.p)} · 碳 ${r0(e.c)} · 脂 ${r0(e.f)}</small></span></button>`;
+    return `<button class="entry" data-act="edit" data-id="${e.id}"><span class="n"><b>${esc(e.name)}</b><small>${esc(eLabel(e))}${isAmt(e.label) ? '' : ' · ' + r0(e.grams) + ' ' + eu(e)}</small></span><span class="k">${e.kcal}<small>蛋 ${r0(e.p)} · 碳 ${r0(e.c)} · 脂 ${r0(e.f)}</small></span></button>`;
   }
 
   // ---------- 搜尋 ----------
@@ -299,10 +305,10 @@
       <div id="results" class="sbody"></div>`;
   }
   function hl(name, q) { if (!q) return esc(name); const set = new Set([...q.toLowerCase()]); return [...name].map(ch => set.has(ch.toLowerCase()) ? '<mark>' + esc(ch) + '</mark>' : esc(ch)).join(''); }
-  function foodRow(f, q) { const u = f.units[0], k = r0(f.kcal * u.g / 100); return `<button class="food" data-act="pick" data-fid="${esc(f.id)}"><span class="n"><b>${hl(f.name, q)}</b><small>1 ${esc(u.n)}（${u.g} 克）· ${esc(f.cat || '自訂')}${f.st ? '・' + esc(f.st) : ''}${f.brand && f.brand.length ? ' · ' + esc(f.brand.slice(0, 3).join('、')) : ''}</small></span><span class="k">${k}<small>kcal</small></span><span class="plus">+</span></button>`; }
+  function foodRow(f, q) { const u = f.units[0], k = r0(f.kcal * u.g / 100); return `<button class="food" data-act="pick" data-fid="${esc(f.id)}"><span class="n"><b>${hl(f.name, q)}</b><small>1 ${esc(u.n)}（${u.g} ${gu(f)}）· ${esc(f.cat || '自訂')}${f.st ? '・' + esc(f.st) : ''}${f.brand && f.brand.length ? ' · ' + esc(f.brand.slice(0, 3).join('、')) : ''}</small></span><span class="k">${k}<small>kcal</small></span><span class="plus">+</span></button>`; }
   function recentRow(f) {
     const e = lastEntry(f.id), vf = e && foodById(e.fid); if (!vf) return foodRow(f);
-    const amt = e.unit ? e.amount + ' ' + e.unit + '（' + r0(e.grams) + ' 克）' : r0(e.grams) + ' 克';
+    const amt = e.unit ? e.amount + ' ' + e.unit + '（' + r0(e.grams) + ' ' + gu(vf) + '）' : r0(e.grams) + ' ' + gu(vf);
     return `<div class="food rc"><button class="rmain" data-act="pick" data-fid="${esc(f.id)}" data-last="1"><span class="n"><b>${esc(vf.name)}</b><small>上次 ${esc(amt)}</small></span><span class="k">${calc(vf, e.grams).kcal}<small>kcal</small></span></button><button class="plus" data-act="quick" data-fid="${esc(f.id)}" aria-label="照上次份量再記一次${esc(vf.name)}">+</button></div>`;
   }
   function renderResults() {
@@ -312,7 +318,7 @@
       const res = NL.search(q, 50), ext = NL.searchList(q, EXT, 60), seen = new Set(res.map(f => f.name)), br = NL.searchBrand(q, BEXT, 60).filter(f => !seen.has(f.name));
       html = res.length ? `<div class="sec">${res.length} 筆結果 · 記到${mealName(S.meal)}</div>` + res.map(f => f.recipe ? recipeRow(S.recipes.find(x => x.id === f.id)) : foodRow(f, q)).join('') : ext.length || br.length ? '' : `<div class="nores">找不到「${esc(q)}」</div>`;
       if (br.length) html += `<div class="sec">超商・連鎖店 · ${br.length >= 60 ? '60+' : br.length} 筆<em>每筆標明官網標示或估算</em></div>` + br.map(f => foodRow(f, q)).join('');
-      if (ext.length) html += `<div class="sec">衛福部食品營養成分資料庫 · ${ext.length >= 60 ? '60+' : ext.length} 筆<em>每 100 克</em></div>` + ext.map(f => foodRow(f, q)).join('');
+      if (ext.length) html += `<div class="sec">衛福部食品營養成分資料庫 · ${ext.length >= 60 ? '60+' : ext.length} 筆<em>每 100 克／毫升</em></div>` + ext.map(f => foodRow(f, q)).join('');
       html += `<button class="btn ghost" style="margin-top:18px" data-act="newfood">＋ 新增自訂食物${res.length || ext.length ? '' : '「' + esc(q) + '」'}</button>`;
     } else {
       html = `<div class="chips">${CATS.map(c => `<button class="chip ${S.cat === c ? 'on' : ''}" data-act="cat" data-cat="${c}">${c}</button>`).join('')}</div>`;
@@ -342,9 +348,9 @@
   function qGrams() { const a = parseFloat(Q.amount) || 0; return Q.unit < 0 ? a : a * Q.food.units[Q.unit].g; }
   function drawQty() {
     const f = Q.food;
-    sheet(`${Q.fromSearch ? '<button class="backbtn" data-act="sback">‹ 回搜尋</button>' : ''}<h2>${esc(f.name)}</h2><div class="sub">每 100 克 ${f.kcal} 大卡 · 蛋白質 ${f.p}・碳水 ${f.c}・脂肪 ${f.f}</div>
-      <div class="chips" style="margin:0 -20px 6px;padding:0 20px">${f.units.map((u, i) => `<button class="chip ${Q.unit === i ? 'on' : ''}" data-act="qunit" data-i="${i}">${esc(u.n)}</button>`).join('')}<button class="chip ${Q.unit < 0 ? 'on' : ''}" data-act="qunit" data-i="-1">克</button></div>
-      <div class="qbig"><input id="qamt" type="number" inputmode="decimal" step="any" value="${Q.amount}"><span>${Q.unit < 0 ? '克' : esc(f.units[Q.unit].n)}</span></div>
+    sheet(`${Q.fromSearch ? '<button class="backbtn" data-act="sback">‹ 回搜尋</button>' : ''}<h2>${esc(f.name)}</h2><div class="sub">每 100 ${gu(f)} ${f.kcal} 大卡 · 蛋白質 ${f.p}・碳水 ${f.c}・脂肪 ${f.f}</div>
+      <div class="chips" style="margin:0 -20px 6px;padding:0 20px">${f.units.map((u, i) => `<button class="chip ${Q.unit === i ? 'on' : ''}" data-act="qunit" data-i="${i}">${esc(u.n)}</button>`).join('')}<button class="chip ${Q.unit < 0 ? 'on' : ''}" data-act="qunit" data-i="-1">${gu(f)}</button></div>
+      <div class="qbig"><input id="qamt" type="number" inputmode="decimal" step="any" value="${Q.amount}"><span>${Q.unit < 0 ? gu(f) : esc(f.units[Q.unit].n)}</span></div>
       <div class="qg" id="qg"></div>
       ${Q.ing != null ? '' : `<div class="seg sm">${MEALS.map(m => `<button data-act="qmeal" data-meal="${m.k}" class="${Q.meal === m.k ? 'on' : ''}">${m.k === 'snack' ? '小食' : m.n}</button>`).join('')}</div>`}
       <div class="qsum"><div><small>熱量</small><span class="num" id="qk"></span></div><div><small>蛋白質</small><span class="num" id="qp"></span></div><div><small>碳水</small><span class="num" id="qc"></span></div><div><small>脂肪</small><span class="num" id="qf"></span></div></div>
@@ -355,7 +361,7 @@
       ${Q.ing == null && !Q.editId && S.custom.some(x => x.id === f.id) ? `<button class="linkbtn" data-act="cfedit" data-fid="${esc(f.id)}">數字不對？修改這個食物${f.barcode ? '（條碼 ' + esc(f.barcode) + '）' : ''}</button>` : ''}`);
     updQty();
   }
-  function updQty() { const g = qGrams(), v = calc(Q.food, g); $('#qk').textContent = v.kcal; $('#qp').textContent = v.p; $('#qc').textContent = v.c; $('#qf').textContent = v.f; $('#qg').textContent = Q.unit < 0 ? '' : '約 ' + r0(g) + ' 克';
+  function updQty() { const g = qGrams(), v = calc(Q.food, g); $('#qk').textContent = v.kcal; $('#qp').textContent = v.p; $('#qc').textContent = v.c; $('#qf').textContent = v.f; $('#qg').textContent = Q.unit < 0 ? '' : '約 ' + r0(g) + ' ' + gu(Q.food);
     const box = $('#qings'); if (box) { const r = S.recipes.find(x => x.id === Q.food.id); if (r) box.innerHTML = '<div class="rhead">會分開記成 ' + r.items.length + ' 樣</div>' + scaledRows(r, g / Q.food.units[0].g); } }
   function saveQty() {
     const g = qGrams(); if (!(g > 0)) return toast('請輸入份量');
@@ -367,7 +373,7 @@
     }
     if (Q.food.recipe) { const r = S.recipes.find(x => x.id === Q.food.id);
       if (r) { logRecipe(r, g / Q.food.units[0].g, Q.meal); closeSheet(); toast('已拆成 ' + r.items.length + ' 樣加入' + mealName(Q.meal)); goMeal(Q.meal); return; } }
-    const label = u ? a + ' ' + u.n : r0(g) + ' 克'; const extra = u ? { unit: u.n, amount: a } : {};
+    const label = u ? a + ' ' + u.n : r0(g) + ' ' + gu(Q.food); const extra = u ? { unit: u.n, amount: a } : {};
     const old = Q.editId ? findEntry(Q.editId) : null;
     if (old) removeEntry(Q.editId);
     const ne = addEntry(Q.food, g, label, Q.meal, extra);
@@ -387,12 +393,14 @@
   // ---------- 自訂食物 ----------
   let NFBC = ''; // 正在新增的自訂食物的條碼（掃了查不到時）
   let NFED = null; // 正在修改的自訂食物（掃到的開放資料不準、自己填錯了）
+  let NFLIQ = false; // 這個自訂食物是液體（每份填毫升）
   function openNewFood(name = '', barcode = '', edit = null) {
-    NFBC = barcode; NFED = edit;
+    NFBC = barcode; NFED = edit; NFLIQ = NL.isLiquid(edit || { name });
     const u = edit && edit.units[0], per = v => edit ? r1(v * u.g / 100) : '';
     sheet(`${barcode && !edit ? '<button class="backbtn" data-act="scan">‹ 重新掃描</button>' : ''}<h2>${edit ? '修改自訂食物' : '新增自訂食物'}</h2><div class="sub">${edit ? '照包裝上的「每一份量」營養標示改。之後記的都用新的數字，已經記過的紀錄不會變。' : barcode ? `條碼 ${esc(barcode)} 還沒有資料。照包裝背面的營養標示填一次，下次掃這個條碼就直接帶出來。` : '照包裝上的「每一份量」營養標示填就可以'}</div>
       <div class="field"><label>名稱</label><input id="nf-n" type="text" style="font-family:var(--sans);font-size:16px;width:190px" value="${esc(edit ? edit.name : name)}" placeholder="例如：公司樓下雞肉飯"></div>
-      <div class="field"><label>每份重量</label><input id="nf-g" type="number" inputmode="decimal" value="${edit ? u.g : 100}"><span class="u">克</span></div>
+      <div class="seg sm" id="nf-liq" style="margin:4px 0 2px"><button data-act="nfliq" data-v="0" class="${NFLIQ ? '' : 'on'}">吃的（克）</button><button data-act="nfliq" data-v="1" class="${NFLIQ ? 'on' : ''}">喝的（毫升）</button></div>
+      <div class="field"><label id="nf-gl">${NFLIQ ? '每份容量' : '每份重量'}</label><input id="nf-g" type="number" inputmode="decimal" value="${edit ? u.g : 100}"><span class="u" id="nf-gu">${NFLIQ ? '毫升' : '克'}</span></div>
       <div class="field"><label>每份熱量</label><input id="nf-k" type="number" inputmode="decimal" placeholder="0" value="${per(edit && edit.kcal)}"><span class="u">大卡</span></div>
       <div class="field"><label>蛋白質</label><input id="nf-p" type="number" inputmode="decimal" placeholder="0" value="${per(edit && edit.p)}"><span class="u">克</span></div>
       <div class="field"><label>碳水化合物</label><input id="nf-c" type="number" inputmode="decimal" placeholder="0" value="${per(edit && edit.c)}"><span class="u">克</span></div>
@@ -402,13 +410,13 @@
   }
   function saveNewFood() {
     const v = id => parseFloat($(id).value) || 0; const name = $('#nf-n').value.trim(); const g = v('#nf-g');
-    if (!name) return toast('請輸入名稱'); if (!(g > 0)) return toast('請輸入每份重量');
+    if (!name) return toast('請輸入名稱'); if (!(g > 0)) return toast(NFLIQ ? '請輸入每份容量' : '請輸入每份重量');
     const p = v('#nf-p'), c = v('#nf-c'), f = v('#nf-f'); const k = v('#nf-k') || p * 4 + c * 4 + f * 9;
     if (!(k > 0)) return toast('請輸入熱量或營養素');
     const x = 100 / g, ed = NFED; let bc = ed ? ed.barcode || '' : NFBC;
     // 同名的舊自訂食物會被換掉；它有條碼的話留下來，不然下次掃那個條碼就找不到了
     const same = S.custom.find(o => o.name === name && o !== ed && o.barcode); if (!bc && same) bc = same.barcode;
-    const food = { id: ed ? ed.id : 'c_' + uid(), name, alias: [], kcal: r1(k * x), p: r1(p * x), c: r1(c * x), f: r1(f * x), units: [{ n: ed && ed.units[0].n || '份', g }], cat: ed ? ed.cat : '自訂', ...(bc ? { barcode: bc } : {}) };
+    const food = { id: ed ? ed.id : 'c_' + uid(), name, alias: [], kcal: r1(k * x), p: r1(p * x), c: r1(c * x), f: r1(f * x), units: [{ n: ed && ed.units[0].n || '份', g }], cat: ed ? ed.cat : '自訂', liq: NFLIQ ? 1 : 0, ...(bc ? { barcode: bc } : {}) };
     const at = ed ? S.custom.findIndex(o => o.id === ed.id) : -1;
     S.custom = S.custom.filter(o => o.id !== food.id && o.name !== name && !(bc && o.barcode === bc));
     if (at >= 0) S.custom.splice(Math.min(at, S.custom.length), 0, food); else S.custom.unshift(food);
@@ -463,14 +471,14 @@
     const mine = S.custom.find(f => f.barcode === code); if (mine) return openQty(mine, { fromSearch: true });
     const m = $('#scmsg'); if (m) m.textContent = '查詢條碼 ' + code + '…';
     try {
-      const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,product_name_zh,brands,nutriments,serving_quantity`);
+      const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,product_name_zh,brands,nutriments,serving_quantity,serving_size,quantity`);
       const j = await r.json(), p = j.product || {}, n = p.nutriments || {};
       const k = n['energy-kcal_100g'] != null ? +n['energy-kcal_100g'] : n.energy_100g != null ? n.energy_100g / 4.184 : null;
       if (j.status === 1 && k != null && k >= 0) {
         let name = (p.product_name_zh || p.product_name || '').trim() || '條碼 ' + code; const br = (p.brands || '').split(',')[0].trim();
         if (br && !name.toLowerCase().includes(br.toLowerCase())) name = br + ' ' + name;
         const sq = parseFloat(p.serving_quantity);
-        const food = { id: 'c_' + uid(), name, alias: [], kcal: r1(k), p: r1(+n.proteins_100g || 0), c: r1(+n.carbohydrates_100g || 0), f: r1(+n.fat_100g || 0), units: [{ n: '份', g: sq > 0 && sq < 2000 ? r1(sq) : 100 }], cat: '條碼', barcode: code };
+        const food = { id: 'c_' + uid(), name, alias: [], kcal: r1(k), p: r1(+n.proteins_100g || 0), c: r1(+n.carbohydrates_100g || 0), f: r1(+n.fat_100g || 0), units: [{ n: '份', g: sq > 0 && sq < 2000 ? r1(sq) : 100 }], cat: '條碼', barcode: code, liq: /\d\s*(ml|cl|l|毫升|公升|cc)\b/i.test((p.serving_size || '') + ' ' + (p.quantity || '')) || NL.isLiquid({ name }) ? 1 : 0 };
         S.custom = S.custom.filter(o => o.barcode !== code); S.custom.unshift(food); save('SG_CUSTOM', S.custom); rebuildFoods();
         toast('找到了（Open Food Facts 開放資料，可以點進去對一下包裝）'); return openQty(food, { fromSearch: true });
       }
@@ -482,12 +490,12 @@
   // RE＝正在編輯的食譜（存之前都放這裡，切去調食材份量再回來不會不見）
   let RE = null;
   const fmtN = n => String(Math.round(n * 100) / 100);
-  const ingLabel = it => it.unit ? fmtN(it.amount) + ' ' + it.unit : r0(it.grams) + ' 克';
+  const ingLabel = it => it.unit ? fmtN(it.amount) + ' ' + it.unit : r0(it.grams) + ' ' + gu(ingFood(it));
   const recipeKcal = r => { const f = RFOODS.find(x => x.id === r.id); return f ? r0(f.kcal * f.units[0].g / 100) : 0; };
   const recipeDesc = r => r.items.length + ' 樣食材' + ((r.yields || 1) !== 1 ? ' · 一次 ' + fmtN(r.yields) + ' 份' : '') + ' · ' + r.items.slice(0, 3).map(x => x.name).join('、') + (r.items.length > 3 ? '…' : '');
   function scaledRows(r, k) {
     const s = k / (r.yields || 1);
-    return r.items.map(it => { const v = calc(ingFood(it), it.grams * s); const l = it.unit ? fmtN(it.amount * s) + ' ' + it.unit : r0(it.grams * s) + ' 克';
+    return r.items.map(it => { const v = calc(ingFood(it), it.grams * s); const l = it.unit ? fmtN(it.amount * s) + ' ' + it.unit : r0(it.grams * s) + ' ' + gu(ingFood(it));
       return `<div class="ri"><span>${esc(it.name)}</span><em>${esc(l)}</em><b class="num">${v.kcal}</b></div>`; }).join('');
   }
   function openRecipe(id, preset) {
@@ -506,7 +514,7 @@
       <div class="field"><label>其他叫法<small>選填</small></label><input id="re-a" type="text" class="tx" value="${esc(RE.alias)}" placeholder="例如：番茄蛋"></div>
       <div class="sec">食材${RE.items.length ? ' · ' + RE.items.length + ' 樣 · 全部 ' + r0(t.kcal) + ' 大卡' : ''}</div>
       <div class="rlist">${RE.items.length ? RE.items.map((it, i) => { const v = calc(ingFood(it), it.grams);
-        return `<div class="ri ed"><button class="rb" data-act="reing" data-i="${i}"><span>${esc(it.name)}</span><em>${esc(ingLabel(it))}${it.unit ? ' · ' + r0(it.grams) + ' 克' : ''}</em><b class="num">${v.kcal}</b></button><button class="x" data-act="redel" data-i="${i}" aria-label="移除">×</button></div>`; }).join('')
+        return `<div class="ri ed"><button class="rb" data-act="reing" data-i="${i}"><span>${esc(it.name)}</span><em>${esc(ingLabel(it))}${it.unit ? ' · ' + r0(it.grams) + ' ' + gu(ingFood(it)) : ''}</em><b class="num">${v.kcal}</b></button><button class="x" data-act="redel" data-i="${i}" aria-label="移除">×</button></div>`; }).join('')
         : '<div class="rempty">還沒有食材。可以一樣一樣搜尋，也可以整句打：<br>「雞胸肉200克 橄欖油一匙 高麗菜150克」</div>'}</div>
       <div class="typebox"><input id="re-q" type="text" value="${esc(RE.q)}" placeholder="搜尋食材，或整句打完按加入" autocomplete="off" enterkeyhint="done"><button data-act="readd">加入</button></div>
       <div id="re-res"></div>
@@ -537,7 +545,7 @@
       const food = it.sugar ? NL.sugarVariant(it.food, it.sugar.n) : it.food;
       const rec = food.recipe && S.recipes.find(x => x.id === food.id);
       if (rec) { const s = it.grams / food.units[0].g / (rec.yields || 1); for (const x of rec.items) { RE.items.push({ ...x, grams: r1(x.grams * s), ...(x.unit ? { amount: Math.round(x.amount * s * 100) / 100 } : {}) }); n++; } continue; }
-      const a = parseFloat(it.label), u = !/克/.test(it.label) && a > 0 ? food.units.find(u => Math.abs(u.g * a - it.grams) < 0.6) : null;
+      const a = parseFloat(it.label), u = !isAmt(it.label) && a > 0 ? food.units.find(u => Math.abs(u.g * a - it.grams) < 0.6) : null;
       RE.items.push({ fid: food.id, name: food.name, grams: it.grams, kcal: food.kcal, p: food.p, c: food.c, f: food.f, ...(u ? { unit: u.n, amount: a } : {}) }); n++;
     }
     if (!n) return toast('找不到「' + text + '」，點下面的搜尋結果試試');
@@ -597,7 +605,7 @@
     stopRec();
     const r = NL.parse(text);
     // 記住用的單位（盤／杯…），之後點進去改份量才會是「2 盤」而不是「2 克」
-    const unitOf = it => { const a = parseFloat(it.label); if (!(a > 0) || /克/.test(it.label)) return {}; const u = it.food.units.find(u => Math.abs(u.g * a - it.grams) < 0.6); return u ? { unit: u.n, amount: a } : {}; };
+    const unitOf = it => { const a = parseFloat(it.label); if (!(a > 0) || isAmt(it.label)) return {}; const u = it.food.units.find(u => Math.abs(u.g * a - it.grams) < 0.6); return u ? { unit: u.n, amount: a } : {}; };
     // 說了「今天／昨天／前天」就記到那天（從今天往回算），沒說就記到現在看的這天
     const date = r.dayOffset != null ? addDays(today(), r.dayOffset) : S.date;
     const added = r.items.flatMap(it => { const food = it.sugar ? NL.sugarVariant(it.food, it.sugar.n) : it.food;
@@ -614,7 +622,7 @@
     sheet(`<div class="result">${added.length ? `<div class="okmark"><svg viewBox="0 0 24 24"><path d="m5 12.500 4.500 4.500L19 7.500"/></svg></div>
       <h2 style="text-align:center">已記錄 ${added.length} 項 · ${sum} 大卡</h2><div class="sub" style="text-align:center">記到${S.date !== today() ? dateLabel(S.date) + ' 的' : ''}${meals}「${esc(text)}」</div>`
       : `<h2>沒有認出食物</h2><div class="sub">「${esc(text)}」</div>`}
-      <div id="rlist">${added.map(a => `<div class="entry" data-rid="${a.e.id}"><span class="n"><b>${esc(a.e.name)}${a.it.est ? '<span class="badge">估算份量</span>' : ''}</b><small>${mealName(a.it.meal)} · ${esc(a.e.label)}${/克/.test(a.e.label) ? '' : ' · ' + r0(a.e.grams) + ' 克'}</small></span><span class="k">${a.e.kcal}<small>蛋 ${r0(a.e.p)} · 碳 ${r0(a.e.c)} · 脂 ${r0(a.e.f)}</small></span><button class="x" data-act="rdel" data-id="${a.e.id}" aria-label="移除">×</button></div>`).join('')}</div>
+      <div id="rlist">${added.map(a => `<div class="entry" data-rid="${a.e.id}"><span class="n"><b>${esc(a.e.name)}${a.it.est ? '<span class="badge">估算份量</span>' : ''}</b><small>${mealName(a.it.meal)} · ${esc(eLabel(a.e))}${isAmt(a.e.label) ? '' : ' · ' + r0(a.e.grams) + ' ' + eu(a.e)}</small></span><span class="k">${a.e.kcal}<small>蛋 ${r0(a.e.p)} · 碳 ${r0(a.e.c)} · 脂 ${r0(a.e.f)}</small></span><button class="x" data-act="rdel" data-id="${a.e.id}" aria-label="移除">×</button></div>`).join('')}</div>
       ${unknown.length ? `<div class="unk">這幾個資料庫裡找不到，點一下可以搜尋或自己新增：<br>${unknown.map(u => `<button data-act="unk" data-q="${esc(u)}">${esc(u)}</button>`).join('')}</div>` : ''}
       <div class="btnrow" style="margin-top:16px"><button class="btn ghost" data-act="voice">再說一次</button><button class="btn" data-act="close">完成</button></div>
       ${added.length > 1 ? '<button class="linkbtn" data-act="rfrom">把這幾樣存成食譜，下次說菜名就好</button>' : ''}
@@ -754,6 +762,7 @@
       case 'scan': openScan(); break;
       case 'bcgo': lookupBarcode($('#bc-in').value); break;
       case 'nfsave': saveNewFood(); break;
+      case 'nfliq': NFLIQ = el.dataset.v === '1'; document.querySelectorAll('#nf-liq button').forEach(b => b.classList.toggle('on', b === el)); $('#nf-gl').textContent = NFLIQ ? '每份容量' : '每份重量'; $('#nf-gu').textContent = NFLIQ ? '毫升' : '克'; break;
       case 'cfedit': { const f = S.custom.find(o => o.id === el.dataset.fid); if (f) openNewFood('', '', f); break; }
       case 'cfdel': if (NFED) deleteCustom(NFED.id); break;
       case 'rnew': openRecipe(null); break;

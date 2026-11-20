@@ -159,4 +159,17 @@ eq('m9', P('義美豆漿一瓶'), '無糖豆漿:400:l');
   eq('d10', P('麥當勞可樂', 12), '麥當勞可樂中:550:l');
   NL.setBrandFoods([]);
 }
+// 11/20 液體用毫升
+{
+  const L = n => NL.isLiquid(FOODS.find(f => f.name === n));
+  eq('l1', [L('無糖豆漿'), L('珍珠奶茶'), L('味噌湯'), L('鮮奶'), L('可樂')].join(), 'true,true,true,true,true');
+  eq('l2', [L('白飯'), L('雞胸肉'), L('無糖優格'), L('乳清蛋白'), L('茶葉蛋'), L('奶粉')].join(), 'false,false,false,false,false,false');
+  const lab = t => NL.parse(t).items.map(i => i.label).join(' ');
+  eq('l3', lab('豆漿300ml'), '300 毫升');
+  eq('l4', lab('雞胸肉150克'), '150 克');
+  eq('l5', lab('紅茶500cc'), '500 毫升');
+  eq('l6', NL.isLiquid({ name: '公司樓下奶茶', liq: 0 }), false);
+  eq('l7', NL.isLiquid({ name: '自己打的蔬果昔', liq: 1 }), true);
+  eq('l8', [NL.isLiquid({ name: '光泉無加糖鮮豆漿936ml', cat: '超商' }), NL.isLiquid({ name: '阜杭豆漿-經典飯糰', cat: '超商' }), NL.isLiquid({ name: '50嵐布丁奶茶', cat: '手搖飲' }), NL.isLiquid({ name: '布丁', cat: '手搖飲' })].join(), 'true,false,true,false');
+}
 console.log(fail ? fail + ' FAILED' : 'ALL PASS', '| foods:', FOODS.length);
