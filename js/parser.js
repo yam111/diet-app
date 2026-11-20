@@ -134,6 +134,7 @@
       const idx = n.indexOf(q);
       if (n === q) s = 120;
       else if (idx === 0) s = 100;
+      else if (idx > 0 && q.length === 1 && idx === n.length - 1) s = 100; // 只打一個字：結尾是那個字（紅茶、滷蛋）跟開頭一樣前面，中文最後一個字才是「這是什麼」
       else if (idx > 0) s = 85 - Math.min(idx, 10);
       else {
         // 每個字照順序都出現（蝦炒飯 → 蝦仁蛋炒飯）
