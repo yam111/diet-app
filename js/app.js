@@ -1162,7 +1162,7 @@
 
   // 過了午夜回到 app 時，自動跳到新的一天
   let lastToday = today();
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && today() !== lastToday) { if (S.date === lastToday) S.date = today(); lastToday = today(); render(); } });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshShared(); if (!document.hidden && today() !== lastToday) { if (S.date === lastToday) S.date = today(); lastToday = today(); render(); } });
 
   // 請瀏覽器不要自動清掉紀錄（Safari 對很久沒開的網站會清本機資料）
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
