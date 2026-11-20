@@ -6,7 +6,7 @@
   const r0 = n => Math.round(n);
   const r1 = n => Math.round(n * 10) / 10;
   const load = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } };
-  const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+  const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { setTimeout(() => toast('手機的瀏覽器儲存空間滿了，這次沒存到。請到「我的」匯出備份，再清一些瀏覽器資料'), 0); } };
   const dkey = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   const today = () => dkey(new Date());
   const addDays = (k, n) => { const d = new Date(k + 'T12:00:00'); d.setDate(d.getDate() + n); return dkey(d); };
@@ -153,7 +153,7 @@
     return `<div class="card"><h3>體重<em>${last != null ? last + ' kg' : ''}</em></h3>
       ${svg || '<p class="note" style="margin:0 0 4px">每天早上起床、上完廁所、吃東西前量最準。量體重＋記飲食滿兩週，就會用你實際的體重變化校正每日目標。</p>'}
       <div class="typebox" style="margin-top:10px"><input id="wt" type="number" inputmode="decimal" step="0.1" placeholder="今天的體重（公斤）" value="${tw != null ? tw : ''}" enterkeyhint="done"><button data-act="wsave">${tw != null ? '更新' : '記錄'}</button></div>
-      ${recent.length ? `<div class="wlist">${recent.map(k => `<span>${shortDate(k)} <b>${S.weight[k]}</b><button data-act="wdel" data-k="${k}" aria-label="刪除">×</button></span>`).join('')}</div>` : ''}</div>`;
+      ${recent.length ? `<div class="wlist">${recent.map(k => `<span>${shortDate(k)} <b>${S.weight[k]}</b><button data-act="wdel" data-k="${esc(k)}" aria-label="刪除">×</button></span>`).join('')}</div>` : ''}</div>`;
   }
   function adaptCard(T) {
     if (S.profile.adapt === false) return `<div class="card"><h3>實際消耗校正<em>已關閉</em></h3><p class="note" style="margin:0">目前只用公式算 TDEE。要打開請到「我的」。</p></div>`;
@@ -249,7 +249,7 @@
     const pk = t.p * 4, ck = t.c * 4, fk = t.f * 9;
     view.innerHTML = `<div class="rise">
       <div class="top"><div class="brand">食<i>光</i></div>
-        <div class="datebar"><button data-act="day" data-n="-1">‹</button><b>${dateLabel(S.date)}</b><button data-act="day" data-n="1" ${S.date >= today() ? 'disabled' : ''}>›</button></div></div>
+        <div class="datebar"><button data-act="day" data-n="-1">‹</button><label class="dpick"><b>${dateLabel(S.date)}</b><input type="date" id="dpick" max="${today()}" value="${S.date}" aria-label="選日期"></label><button data-act="day" data-n="1" ${S.date >= today() ? 'disabled' : ''}>›</button></div></div>
       <div class="card hero"><div class="ringwrap">
         <div class="ring ${over ? 'over' : ''}"><svg viewBox="0 0 176 176"><defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f1dcae"/><stop offset="1" stop-color="#b8935a"/></linearGradient></defs>
           <circle class="bg" cx="88" cy="88" r="78"/><circle class="fg" cx="88" cy="88" r="78" stroke-dasharray="${C}" stroke-dashoffset="${C}" data-to="${C * (1 - pct)}"/></svg>
@@ -284,9 +284,9 @@
     return `<button class="same" data-act="copymeal" data-meal="${m.k}"><span class="ic2"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.5"/><path d="M20 4v4.500h-4.500"/><path d="M20 12a8 8 0 0 1-13.7 5.600L4 15.500"/><path d="M4 20v-4.500h4.500"/></svg></span>
       <span class="n"><b>同${pm.k === addDays(S.date, -1) ? '昨天' : ' ' + shortDate(pm.k) + ' '}的${m.n}</b><small>${esc(names.slice(0, 3).join('、'))}${names.length > 3 ? ' 等 ' + names.length + ' 樣' : ''}</small></span><span class="k">${kc}<small>kcal</small></span></button>`;
   }
-  function swipeRow(e) { return `<div class="sw" data-id="${e.id}"><button class="swdel" data-act="swdel" data-id="${e.id}" tabindex="-1">刪除</button>${entryRow(e)}</div>`; }
+  function swipeRow(e) { return `<div class="sw" data-id="${esc(e.id)}"><button class="swdel" data-act="swdel" data-id="${esc(e.id)}" tabindex="-1">刪除</button>${entryRow(e)}</div>`; }
   function entryRow(e) {
-    return `<button class="entry" data-act="edit" data-id="${e.id}"><span class="n"><b>${esc(e.name)}</b><small>${esc(eLabel(e))}${isAmt(e.label) ? '' : ' · ' + r0(e.grams) + ' ' + eu(e)}</small></span><span class="k">${e.kcal}<small>蛋 ${r0(e.p)} · 碳 ${r0(e.c)} · 脂 ${r0(e.f)}</small></span></button>`;
+    return `<button class="entry" data-act="edit" data-id="${esc(e.id)}"><span class="n"><b>${esc(e.name)}</b><small>${esc(eLabel(e))}${isAmt(e.label) ? '' : ' · ' + r0(e.grams) + ' ' + eu(e)}</small></span><span class="k">${e.kcal}<small>蛋 ${r0(e.p)} · 碳 ${r0(e.c)} · 脂 ${r0(e.f)}</small></span></button>`;
   }
 
   // ---------- 搜尋 ----------
@@ -373,8 +373,9 @@
     }
     if (Q.food.recipe) { const r = S.recipes.find(x => x.id === Q.food.id);
       if (r) { logRecipe(r, g / Q.food.units[0].g, Q.meal); closeSheet(); toast('已拆成 ' + r.items.length + ' 樣加入' + mealName(Q.meal)); goMeal(Q.meal); return; } }
-    const label = u ? a + ' ' + u.n : r0(g) + ' ' + gu(Q.food); const extra = u ? { unit: u.n, amount: a } : {};
+    if (g > 3000 && !confirm(`份量是 ${r0(g)} ${gu(Q.food)}，確定沒有多打一個 0 嗎？`)) return;
     const old = Q.editId ? findEntry(Q.editId) : null;
+    const label = u ? a + ' ' + u.n : r0(g) + ' ' + gu(Q.food); const extra = { ...(u ? { unit: u.n, amount: a } : {}), ...(old && old.e.recipe ? { recipe: old.e.recipe } : {}) };
     if (old) removeEntry(Q.editId);
     const ne = addEntry(Q.food, g, label, Q.meal, extra);
     if (old && old.meal === Q.meal) { const list = day(S.date)[Q.meal]; list.splice(list.indexOf(ne), 1); list.splice(old.i, 0, ne); saveLog(); } // 改份量不要跳到最下面
@@ -714,14 +715,21 @@
   }
 
   // ---------- 面板／提示 ----------
-  let onClose = null;
+  let onClose = null, skipPop = false;
   function sheet(html, closeFn, cls = '') {
     if (onClose) { const f = onClose; onClose = null; f(); }
     onClose = closeFn || null;
     const had = !!$('#sheets .sheet');
+    if (!had && !(history.state && history.state.sg)) history.pushState({ sg: 1 }, '');
     $('#sheets').innerHTML = `<div class="scrim" data-act="scrim" ${had ? 'style="animation:none"' : ''}><div class="sheet ${cls}" ${had ? 'style="animation:none"' : ''}><div class="grab"></div>${html}</div></div>`;
   }
-  function closeSheet() { if (onClose) { const f = onClose; onClose = null; f(); } $('#sheets').innerHTML = ''; if (S.pendingMeal && S.profile) goMeal(S.pendingMeal); }
+  function closeSheet(fromBack) {
+    const open = !!$('#sheets .sheet');
+    if (onClose) { const f = onClose; onClose = null; f(); } $('#sheets').innerHTML = ''; if (S.pendingMeal && S.profile) goMeal(S.pendingMeal);
+    // 等一下再退回上一頁：關掉之後馬上又開別的視窗（例如沒認出的字→搜尋）就沿用同一筆，不退
+    if (!fromBack && open) setTimeout(() => { if (!$('#sheets .sheet') && history.state && history.state.sg) { skipPop = true; history.back(); } }, 0);
+  }
+  window.addEventListener('popstate', () => { if (skipPop) { skipPop = false; return; } if ($('#sheets .sheet')) closeSheet(true); });
   // undo：給了就在提示旁邊放「復原」，4 秒內可以按
   let tt, tUndo = null; function toast(msg, undo) {
     const t = $('#toast'); tUndo = undo || null; t.textContent = ''; const sp = document.createElement('span'); sp.textContent = msg; t.appendChild(sp); t.classList.toggle('act', !!undo);
@@ -731,6 +739,7 @@
   // ---------- 事件 ----------
   document.addEventListener('click', ev => {
     const tab = ev.target.closest('[data-tab]'); if (tab) { if (tab.dataset.tab === 'search') { if (S.tab !== 'today') { S.tab = 'today'; render(); } return openSearch(null); } S.tab = tab.dataset.tab; view.scrollTop = 0; return render(); }
+    if (ev.target.closest('.dpick')) { const i = $('#dpick'); try { if (i && i.showPicker) { i.showPicker(); ev.preventDefault(); } } catch (e) { } return; }
     const set = ev.target.closest('[data-set]'); if (set) return setProfile(set.dataset.set, set.dataset.v);
     const el = ev.target.closest('[data-act]'); if (!el) return;
     const a = el.dataset.act;
@@ -757,7 +766,7 @@
       case 'swdel': { const d = S.date, f = findEntry(el.dataset.id, d); if (!f) break; const row = el.closest('.sw');
         const done = () => { removeEntry(f.e.id, d); render(); toast(`已刪除 ${f.e.name}`, () => { day(d)[f.meal].splice(f.i, 0, f.e); saveLog(); render(); }); };
         if (row) { row.classList.add('gone'); setTimeout(done, 220); } else done(); break; }
-      case 'qdel': removeEntry(Q.editId); closeSheet(); toast('已刪除'); render(); break;
+      case 'qdel': { const d = S.date, f = findEntry(Q.editId, d); removeEntry(Q.editId, d); closeSheet(); render(); if (f) toast(`已刪除 ${f.e.name}`, () => { day(d)[f.meal].splice(f.i, 0, f.e); saveLog(); render(); }); break; }
       case 'newfood': openNewFood(S.q.trim()); break;
       case 'scan': openScan(); break;
       case 'bcgo': lookupBarcode($('#bc-in').value); break;
@@ -844,7 +853,8 @@
     const t = ev.target;
     if (t.dataset.f) setProfile(t.dataset.f, t.value);
     else if (t.dataset.r || t.dataset.pk) { if (S.profile) save('SG_PROFILE', S.profile); render(); }
-    else if (t.id === 'imp' && t.files[0]) importData(t.files[0]);
+    else if (t.id === 'dpick') { const v = t.value; if (isDay(v) && v <= today()) { S.date = v; render(); } }
+    else if (t.id === 'imp' && t.files[0]) { importData(t.files[0]); t.value = ''; } // 清掉，同一個檔案再選一次也有反應
   });
   document.addEventListener('keydown', ev => {
     if (ev.key !== 'Enter') return;
@@ -865,10 +875,38 @@
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fname; a.style.display = 'none';
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); toast('已匯出備份檔');
   }
+  // 備份檔的內容一律重新整理：數字就是數字、文字就是文字、日期要像日期
+  const numv = (v, d = 0) => { const n = +v; return isFinite(n) ? n : d; };
+  const strv = (v, max = 120) => String(v == null ? '' : v).slice(0, max);
+  const idv = v => strv(v, 80); // 畫面上用到 id 的地方都有跳脫
+  const isDay = k => /^\d{4}-\d{2}-\d{2}$/.test(k);
+  const cleanEntry = e => e && typeof e === 'object' && numv(e.grams) > 0 ? { id: idv(e.id) || uid(), fid: idv(e.fid), name: strv(e.name), grams: numv(e.grams), label: strv(e.label), kcal: r0(numv(e.kcal)), p: numv(e.p), c: numv(e.c), f: numv(e.f),
+    ...(e.unit ? { unit: strv(e.unit, 10), amount: numv(e.amount, 1) } : {}), ...(e.recipe ? { recipe: strv(e.recipe) } : {}), ...(e.liq ? { liq: 1 } : {}) } : null;
+  const cleanFood = f => { if (!f || typeof f !== 'object' || !strv(f.name).trim()) return null; const units = (Array.isArray(f.units) ? f.units : []).map(u => ({ n: strv(u && u.n, 10) || '份', g: numv(u && u.g) })).filter(u => u.g > 0);
+    return { id: idv(f.id) || 'c_' + uid(), name: strv(f.name), alias: (Array.isArray(f.alias) ? f.alias : []).map(x => strv(x, 40)), kcal: numv(f.kcal), p: numv(f.p), c: numv(f.c), f: numv(f.f), units: units.length ? units : [{ n: '份', g: 100 }], cat: strv(f.cat, 20) || '自訂',
+      ...(f.barcode ? { barcode: strv(f.barcode, 14).replace(/\D/g, '') } : {}), ...(f.liq != null ? { liq: f.liq ? 1 : 0 } : {}) }; };
+  const cleanRecipe = r => { if (!r || typeof r !== 'object' || !strv(r.name).trim()) return null; const items = (Array.isArray(r.items) ? r.items : []).filter(it => it && numv(it.grams) > 0).map(it => ({ fid: idv(it.fid), name: strv(it.name), grams: numv(it.grams), kcal: numv(it.kcal), p: numv(it.p), c: numv(it.c), f: numv(it.f), ...(it.unit ? { unit: strv(it.unit, 10), amount: numv(it.amount, 1) } : {}) }));
+    return items.length ? { id: idv(r.id) || 'r_' + uid(), name: strv(r.name), alias: (Array.isArray(r.alias) ? r.alias : []).map(x => strv(x, 40)), yields: Math.max(0.1, numv(r.yields, 1)), items } : null; };
+  function cleanBackup(d) {
+    const P = d.profile, p = { ...DEF, custom: { ...DEF.custom } };
+    p.sex = P.sex === 'f' ? 'f' : 'm';
+    for (const k of ['age', 'height', 'weight', 'act', 'pace']) p[k] = numv(P[k], DEF[k]);
+    if (GOALS[P.goal]) p.goal = P.goal; if (PLANS.some(x => x.k === P.plan)) p.plan = P.plan;
+    if (P.bmrMode === 'manual') { p.bmrMode = 'manual'; p.bmrIn = numv(P.bmrIn); }
+    if (P.adapt === false) p.adapt = false;
+    for (const k of ['goalW', 'pkg']) if (numv(P[k]) > 0) p[k] = numv(P[k]);
+    if (P.custom && typeof P.custom === 'object') p.custom = { c: numv(P.custom.c, 40), f: numv(P.custom.f, 30) };
+    const log = {};
+    for (const k of Object.keys(d.log || {})) { if (!isDay(k)) continue; const day0 = d.log[k] || {}; log[k] = {}; for (const m of MEALS) log[k][m.k] = (Array.isArray(day0[m.k]) ? day0[m.k] : []).map(cleanEntry).filter(Boolean); }
+    const weight = {}; for (const k of Object.keys(d.weight || {})) { const w = numv(d.weight[k]); if (isDay(k) && w >= 25 && w <= 250) weight[k] = w; }
+    return { profile: p, log, weight, custom: (Array.isArray(d.custom) ? d.custom : []).map(cleanFood).filter(Boolean), recipes: (Array.isArray(d.recipes) ? d.recipes : []).map(cleanRecipe).filter(Boolean), recent: (Array.isArray(d.recent) ? d.recent : []).map(idv).filter(Boolean).slice(0, 12) };
+  }
   function importData(file) {
     const fr = new FileReader();
-    fr.onload = () => { try { const d = JSON.parse(fr.result); if (d.app !== 'shiguang' || !d.profile || !d.log) throw 0;
-      S.profile = d.profile; S.log = d.log; S.custom = d.custom || []; S.recipes = d.recipes || []; S.recent = d.recent || []; S.weight = d.weight || {};
+    fr.onload = () => { try { const raw = JSON.parse(fr.result); if (!raw || raw.app !== 'shiguang' || !raw.profile || typeof raw.profile !== 'object' || !raw.log) throw 0;
+      const d = cleanBackup(raw), nd = Object.keys(d.log).length, cur = Object.keys(S.log).filter(k => totals(k).n).length;
+      if (!confirm(`備份檔裡有 ${nd} 天的紀錄${raw.at ? '（' + strv(raw.at, 10) + ' 匯出）' : ''}。\n匯入會「取代」這支手機目前的資料${cur ? '（' + cur + ' 天的紀錄）' : ''}，確定要匯入嗎？`)) return;
+      S.profile = d.profile; S.log = d.log; S.custom = d.custom; S.recipes = d.recipes; S.recent = d.recent; S.weight = d.weight; S.date = today();
       save('SG_PROFILE', S.profile); saveLog(); save('SG_CUSTOM', S.custom); save('SG_RECIPES', S.recipes); save('SG_RECENT', S.recent); save('SG_WEIGHT', S.weight); rebuildFoods(); render(); toast('已匯入備份'); } catch (e) { toast('這個檔案不是食光的備份'); } };
     fr.readAsText(file);
   }
