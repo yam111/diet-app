@@ -155,7 +155,7 @@
     const names = namesOf(f).join('|');
     for (let L = qs.length - 1; L >= 2; L--) for (let i = 0; i + L <= qs.length; i++) {
       const w = qs.slice(i, i + L).join(''); if (NUMCH.test(w[0]) && /^\d+$/.test(w)) continue;
-      if (names.includes(w)) return Math.min(30, 10 + L * 4);
+      if (names.includes(w)) return Math.min(30, 10 + L * 4) + (i + L === qs.length ? 5 : 0); // 對到的是後半段（綠茶）比前面的形容詞（無糖）重要：中文最後面才是「這是什麼」
     }
     return 0;
   }
