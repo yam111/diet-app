@@ -36,7 +36,7 @@ function clean_(d) {
   const lim = { sug: c + 0.5, na: 40000, sat: f + 0.5, tr: f + 0.5, fib: 100 };
   const nx = NXK.map(key => { if (d[key] == null || d[key] === '') return ''; const v = Number(d[key]); if (!isFinite(v) || v < 0 || v > lim[key]) return ''; return key === 'na' ? Math.round(v) : Math.round(v * 100) / 100; });
   if (nx[2] !== '' && nx[3] !== '' && nx[2] + nx[3] > f + 0.5) nx[3] = '';
-  return [bc, name, g, d.liq ? 1 : 0, k, p, c, f].concat(nx);
+  return [bc, name, g, d.liq == 2 ? 2 : d.liq ? 1 : 0, k, p, c, f].concat(nx); // 液體欄：0 吃的、1 喝的、2 不知道重量（只記一份）
 }
 
 function doPost(e) {
