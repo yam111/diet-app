@@ -547,6 +547,7 @@
   // ---------- 自訂食物 ----------
   let NFNET = false; // 正在對網路條碼資料
   let NFBC = ''; // 正在新增的自訂食物的條碼（掃了查不到時）
+  let NFV = {}; // 這一次講的話填了哪些欄位：{欄位id: {v: 填的值, prev: 原本的值}}；改字後某項不見了就還原
   let NFED = null; // 正在修改的自訂食物（掃到的開放資料不準、自己填錯了）
   let NFLIQ = false; // 這個自訂食物是液體（每份填毫升）
   let NFNOG = false; // 不知道一份多重（早餐店、小吃）：只記「一份」的營養，不填重量
@@ -556,7 +557,7 @@
     const u = edit && edit.units[0], per = v => edit ? r1(v * u.g / 100) : '';
     const mine = edit && S.custom.some(x => x.id === edit.id), base = edit && (FOODS.find(x => x.id === edit.id) || EXTMAP.get(edit.id));
     sheet(`${(barcode && !edit) || o.net ? '<button class="backbtn" data-act="scan">‹ 重新掃描</button>' : o.back ? '<button class="backbtn" data-act="nfback">‹ 返回</button>' : ''}<h2>${o.net ? '對一下包裝' : edit ? '修改食物資料' : '新增自訂食物'}</h2><div class="sub">${o.net ? `網路上找到這個條碼（Open Food Facts，大家上傳的資料，可能是舊包裝或打錯）。請跟包裝背面的「營養標示」對一下，不一樣就照包裝改。${o.net === 'nosv' ? '網路資料沒寫每份多重，下面先用「每 100 克」，可以對包裝的「每100公克」那欄，或改成「每一份量」。' : ''}存好之後，掃這個條碼都用你對過的數字。` : edit ? (String(edit.id).startsWith('s_') && !mine ? '這是其他人掃這個條碼時照包裝填的數字。跟包裝對一下，不一樣就照包裝改。' : base && !mine ? '這是內建的數字（參考衛福部資料或一般做法估算）。照包裝或你吃的那家改，之後記的、說話記的都用你的數字；隨時可以還原。' : '照包裝上的「每一份量」營養標示改。') + '已經記過的紀錄不會變，要套新數字就點那一筆再按儲存。' : barcode ? `條碼 ${esc(barcode)} 還沒有資料。照包裝背面的營養標示填一次，下次掃這個條碼就直接帶出來。` : '照包裝上的「每一份量」營養標示填就可以'}${barcode || o.net || (edit && edit.barcode) ? '<p class="note" style="margin-top:6px">有條碼的食物存好後會分享到共用食物庫，其他人掃同一個條碼就查得到（只分享條碼、品名和營養數字）。</p>' : ''}</div>
-      ${SR ? `<button class="nfmic" id="nfmic" data-act="nfmic">${MIC}<span>用講的填</span></button><div class="nfheard" id="nfheard">例：「老饕廚房番茄雞胸肉，每份 180 克，熱量 250，蛋白質 30，碳水 12，脂肪 8，糖 3，鈉 450 毫克」（品名先講，數字照包裝念）</div>` : ''}
+      ${SR ? `<button class="nfmic" id="nfmic" data-act="nfmic">${MIC}<span>用講的填</span></button><div class="nfheard" id="nfheard">點一下開始講，邊講邊填進下面的欄位。可以一次念完，例：「老饕廚房番茄雞胸肉，每份 180 克，熱量 250，蛋白質 30，碳水 12，脂肪 8，鈉 450」；也可以只講名稱、或只講其中幾項，沒講到的不會動。</div><textarea id="nftx" class="tx grow nftx" rows="1" style="display:none" placeholder="聽到的字會出現在這裡，可以直接改"></textarea>` : ''}
       <div class="field"><label>名稱</label><textarea id="nf-n" class="tx grow" rows="1" placeholder="例如：公司樓下雞肉飯">${esc(edit ? edit.name : name)}</textarea></div>
       <div class="seg sm" id="nf-liq" style="margin:4px 0 2px"><button data-act="nfliq" data-v="0" class="${NFLIQ || NFNOG ? '' : 'on'}">吃的（克）</button><button data-act="nfliq" data-v="1" class="${NFLIQ ? 'on' : ''}">喝的（毫升）</button><button data-act="nfliq" data-v="2" class="${NFNOG ? 'on' : ''}">不知道重量</button></div>
       <p class="note" id="nf-nogn" style="margin:2px 0 4px;${NFNOG ? '' : 'display:none'}">不用填重量，下面填「一份」的熱量跟營養素（不確定就抓大概）。記錄時用「幾份」記，例如半份填 0.5。</p>
@@ -571,7 +572,8 @@
       <p class="note">熱量沒填的話，會用三大營養素自動算（蛋白質、碳水每克 4 大卡，脂肪每克 9 大卡）。</p>
       ${o.net ? '<button class="btn" data-act="nfsave">對好了，加入紀錄</button>' : edit ? `<div class="btnrow">${mine ? `<button class="btn danger" style="flex:.6" data-act="cfdel">${base ? '還原' : '刪除'}</button>` : ''}<button class="btn" data-act="nfsave">儲存</button></div>` : `<button class="btn" data-act="nfsave">${o.from === 'me' ? '儲存' : '儲存並加入紀錄'}</button>`}`, stopRec, '',
       o.back ? nfBack : o.from === 'me' ? null : inSrch ? backToSearch : null);
-    NFNET = !!o.net;
+    NFNET = !!o.net; NFV = {};
+    const tx = $('#nftx'); if (tx) { tx.oninput = () => nfFill(tx.value, !!LS); tx.onfocus = () => { if (LS) LS.finish(); }; }
   }
   const u0g = f => f.units[0].g;
   function nfBack() { const b = NFO.back; NFO = {}; NFED = null; if (b) openQty(foodById(b.f.id) || b.f, b.q); else if (inSrch) backToSearch(); else closeSheet(); }
@@ -822,8 +824,16 @@
     });
   }
   // 自訂食物表單：講「每份 60 克 熱量 250 蛋白質 8 碳水 30 脂肪 11」自動填進欄位
+  // 語音常見聽錯的字：「份量」→「分量」、「每一份」→「每1份」、「鈉」→「那／納」、「碳水」→「炭水」…先改回來
+  function nfFix(t) {
+    return String(t || '').replace(/\s+/g, '')
+      .replace(/分量/g, '份量').replace(/每(?:一|1|個)?[分份](?!鐘)/g, '每份').replace(/每個?(包|瓶|罐|盒|條|片|顆|杯)/g, '每$1')
+      .replace(/[炭探湯]水(化合物)?/g, '碳水$1').replace(/[知脂指][方防房]/g, '脂肪').replace(/熱[涼糧亮]/g, '熱量').replace(/蛋白[質之知枝汁]?/g, '蛋白質').replace(/包和/g, '飽和').replace(/膳食[纖先][維為]/g, '膳食纖維')
+      .replace(/[那納吶娜拿](?=[是有為：:]?[\d零〇一二兩三四五六七八九十百千](?![\d零〇一二兩三四五六七八九十百千.]*[份個包瓶罐盒條片顆杯碗]))/g, '鈉');
+  }
   function nutriFromSpeech(text) {
-    let s = String(text || '').replace(/\s+/g, '').replace(/毫克|mg(?![a-z])/gi, '毫克').replace(/公克|(?<!m)g(?![a-z])/gi, '克').replace(/kcal|千卡|卡路里/gi, '大卡').replace(/ml|cc|c\.c\./gi, '毫升')
+    text = nfFix(text);
+    let s = text.replace(/毫克|mg(?![a-z])/gi, '毫克').replace(/公克|(?<!m)g(?![a-z])/gi, '克').replace(/kcal|千卡|卡路里/gi, '大卡').replace(/ml|cc|c\.c\./gi, '毫升')
       .replace(/([零〇一二兩三四五六七八九十百千\d]+)點([零〇一二三四五六七八九\d]+)/g, (m, a, b) => NL.cnNum(a) + '.' + [...b].map(ch => /\d/.test(ch) ? ch : NL.cnNum(ch)).join(''))
       .replace(/[零〇一二兩三四五六七八九十百千]+(?=[\d.]*(大卡|克|毫克|毫升|$|[，,、。熱蛋碳脂每份重容名糖鈉飽反膳纖]))/g, m => NL.cnNum(m));
     const out = {};
@@ -843,29 +853,42 @@
     if (nm && nm[1].replace(/[，,、。是：:]/g, '')) out.n = nm[1].replace(/^[是：:]|[，,、。]/g, '');
     // 沒說「名稱」：數字前面講的就當品名（「老饕廚房番茄雞胸肉 熱量 250 蛋白質 30…」）
     if (out.n == null) {
-      const raw = String(text || '').replace(/\s+/g, ''), m = /熱量|蛋白|碳水|醣類|脂肪|油脂|能量|鈉|飽和|反式|膳食纖維|每一?份|份量|重量|容量|淨重|營養|[\d零〇一二兩三四五六七八九十百千]+(?:點[\d零〇一二三四五六七八九]+)?(?:大卡|卡|克|公克|毫升)/.exec(raw);
-      let n = (m ? raw.slice(0, m.index) : '').replace(/[，,、。：:！!？?]/g, '').replace(/^(?:我要)?(?:新增|加入|記錄?|紀錄)?(?:一個|一下)?(?:這個|這是|品名是?|是)?/, '').replace(/(?:的|它|他)?(?:營養標示|標示)?(?:是|有)?$/, '').replace(/[\d零〇一二兩三四五六七八九十]+(?:份|個|包|盒|瓶|罐|條|片|顆)$/, '');
+      const raw = String(text || '').replace(/\s+/g, ''), m = /熱量|蛋白|碳水|醣類|脂肪|油脂|能量|鈉|飽和|反式|膳食纖維|每份|每(?:包|瓶|罐|盒|條|片|顆|杯)|份量|重量|容量|淨重|營養|[\d零〇一二兩三四五六七八九十百千]+(?:點[\d零〇一二三四五六七八九]+)?(?:大卡|卡|克|公克|毫升)/.exec(raw);
+      const nums = ['k', 'p', 'c', 'f', 'g', ...NXK].some(k => out[k] != null);
+      let n = (m ? raw.slice(0, m.index) : nums ? '' : raw).replace(/[，,、。：:！!？?]/g, '').replace(/^(?:那|嗯|呃|然後|好)*(?:我要)?(?:新增|加入|記錄?|紀錄)?(?:一個|一下)?(?:這個|這是|品名是?|是)?/, '').replace(/(?:的|它|他)?(?:營養標示|標示)?(?:是|有)?$/, '').replace(/[\d零〇一二兩三四五六七八九十]+(?:份|個|包|盒|瓶|罐|條|片|顆)$/, '');
       if (n.length >= 2 && n.length <= 30) out.n = n;
     }
+    if (out.n != null) { let n = out.n; for (let k = 0; k < 3; k++) n = n.replace(/(?:每[一1個]?|的|有|它|他|是|那|然後|還有)$/, ''); out.n = n.length >= 2 ? n : undefined; if (out.n == null) delete out.n; } // 「XXX每」「XXX的」這種講到一半的尾巴
     return out;
   }
-  function nfFill(text) {
+  // 邊講邊填：每次聽到新的字（或使用者改了聽到的字）就重新對一次；這一次講的話裡沒有的欄位不動，
+  // 改字後某一項不見了，就還原成講之前的值
+  function nfFill(text, live) {
     const r = nutriFromSpeech(text), set = [], box = $('#nfheard');
-    const put = (id, v, lab) => { const i = $(id); if (i && v != null) { i.value = v; set.push(lab); } };
+    const put = (id, v, lab) => {
+      const i = $(id); if (!i) return; const was = NFV[id];
+      if (v != null) { const sv = String(v); if (!was) NFV[id] = { v: sv, prev: i.value }; else was.v = sv; if (i.value !== sv) { i.value = sv; if (i.classList.contains('grow')) i.dispatchEvent(new Event('input', { bubbles: true })); } set.push(lab); }
+      else if (was) { if (i.value === was.v) i.value = was.prev; delete NFV[id]; }
+    };
     put('#nf-n', r.n, '名稱'); put('#nf-g', r.g, NFLIQ || r.liq ? '每份容量' : '每份重量'); put('#nf-k', r.k, '熱量'); put('#nf-p', r.p, '蛋白質'); put('#nf-c', r.c, '碳水'); put('#nf-f', r.f, '脂肪');
     if (NX.some(([k]) => r[k] != null)) { const d = $('#nfmore'); if (d) d.open = true; }
     for (const [k, n] of NX) put('#nf-' + k, r[k], n);
     if (r.liq != null && !!r.liq !== NFLIQ) { const b = $(`#nf-liq button[data-v="${r.liq}"]`); if (b) b.click(); }
     else if (r.g != null && NFNOG) { const b = $('#nf-liq button[data-v="0"]'); if (b) b.click(); } // 講了重量就切回填重量
-    if (box) { box.classList.remove('ph'); box.innerHTML = '「' + esc(text) + '」<br>' + (set.length ? '已填入：' + set.join('、') + '，請對一下再存' : '沒聽出數字，可以說「熱量 250 蛋白質 8」這樣'); }
+    if (!box) return;
+    box.classList.remove('ph');
+    if (live) box.innerHTML = '<b>正在聽…</b>邊講邊填' + (set.length ? '（已填：' + set.join('、') + '）' : '') + '。講完點上面的按鈕結束';
+    else box.innerHTML = set.length ? '已填入：<b>' + set.join('、') + '</b>。聽錯的字直接改下面這段，欄位會跟著變；也可以直接改欄位，或再點麥克風只講要改的那項（例如「鈉 300」）' : '沒聽出名稱或數字，可以改下面這段字，或再講一次，例如「熱量 250 蛋白質 8」';
   }
   function startNfRec() {
-    const b = $('#nfmic'), box = $('#nfheard');
+    const b = $('#nfmic'), box = $('#nfheard'), tx = $('#nftx'), lab = b && b.querySelector('span');
+    const off = () => { if (b) b.classList.remove('live'); if (lab) lab.textContent = '用講的填'; };
+    NFV = {}; // 新的一次：上一次填好的都算原本的值，這次沒講到的不動
     listen({
-      onStart: () => { if (b) b.classList.add('live'); if (box) box.textContent = '正在聽…照包裝念：每份幾克、熱量、蛋白質、碳水、脂肪（有的話再念糖、鈉），念完點一下按鈕'; },
-      onText: t => { if (box) box.textContent = t; },
-      onDone: t => { if (b) b.classList.remove('live'); if (!$('#nfmic')) return; if (t) nfFill(t); else if (box) box.textContent = '沒聽到聲音，再點一下試試'; },
-      onErr: e => { if (b) b.classList.remove('live'); if (box) box.textContent = micErr(e); },
+      onStart: () => { if (b) b.classList.add('live'); if (lab) lab.textContent = '講完了，點這裡結束'; if (box) box.innerHTML = '<b>正在聽…</b>照包裝念名稱、每份幾克、熱量、蛋白質、碳水、脂肪（有的話再念糖、鈉），會邊講邊填進下面'; if (tx) { tx.value = ''; tx.style.display = 'none'; } },
+      onText: t => { if (!$('#nfmic')) return; if (tx) { tx.style.display = ''; tx.value = nfFix(t); tx.dispatchEvent(new Event('input', { bubbles: true })); } else nfFill(t, true); },
+      onDone: t => { off(); if (!$('#nfmic')) return; if (t) { if (tx) { tx.style.display = ''; tx.value = nfFix(t); } nfFill(t); } else if (box) box.textContent = '沒聽到聲音，再點一下試試'; },
+      onErr: e => { off(); if (box) box.textContent = micErr(e); },
     });
   }
   // 搜尋框用講的：講一個食物名，停一下就自動搜尋（不用等 7 秒）
