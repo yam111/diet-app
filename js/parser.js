@@ -12,7 +12,10 @@
     '50嵐': ['50嵐', '五十嵐'], '85度C': ['85度c', '85度', '八五度'], 摩斯: ['摩斯', 'mos'], 清心福全: ['清心福全', '清心'], 'CoCo': ['coco', '都可'],
     再睡5分鐘: ['再睡5分鐘', '再睡五分鐘'], 日出茶太: ['日出茶太', '茶太', 'chatime'], 天仁茗茶: ['天仁茗茶', '天仁', '喫茶趣'], 八曜和茶: ['八曜和茶', '八曜'], 麻古: ['麻古茶坊', '麻古'],
     路易莎: ['路易莎', 'louisa'], 伯朗咖啡: ['伯朗咖啡', '伯朗'], 早安美芝城: ['早安美芝城', '美芝城'], 三商巧福: ['三商巧福', '巧福'], 繼光香香雞: ['繼光香香雞', '繼光'],
-    'Mister Donut': ['misterdonut', 'mrdonut', 'mr.donut', '米斯特'], '21世紀': ['21世紀風味館', '21世紀'], 必勝客: ['必勝客', 'pizzahut'], 達美樂: ['達美樂', 'dominos'], 漢堡王: ['漢堡王', 'burgerking'] };
+    'Mister Donut': ['misterdonut', 'mrdonut', 'mr.donut', '米斯特'], '21世紀': ['21世紀風味館', '21世紀'], 必勝客: ['必勝客', 'pizzahut'], 達美樂: ['達美樂', 'dominos'], 漢堡王: ['漢堡王', 'burgerking'],
+    可不可: ['可不可熟成紅茶', '可不可'], 'Q Burger': ['qburger', 'q burger', '吃早餐q'], 拉亞: ['拉亞漢堡', '拉亞'], 弘爺: ['弘爺漢堡', '弘爺'], 丹丹: ['丹丹漢堡', '丹丹'], 丸亀製麵: ['丸亀製麵', '丸龜製麵', '丸亀', '丸龜'],
+    梁社漢排骨: ['梁社漢排骨', '梁社漢'], 悟饕池上飯包: ['悟饕池上飯包', '悟饕'], 師園鹽酥雞: ['師園鹽酥雞', '師園'], 銀座杏子豬排: ['銀座杏子豬排', '杏子豬排'], 黑沃咖啡: ['黑沃咖啡', '黑沃'],
+    'Mr.Wish': ['mr.wish', 'mrwish', 'mr wish'], COMEBUY: ['comebuy'], 定食8: ['定食8', '定食八'], 壽司郎: ['壽司郎', 'sushiro'], 藏壽司: ['藏壽司', 'kura'], Subway: ['subway', '賽百味'], cama: ['cama咖啡', 'cama'] };
 
   function setFoods(list) {
     foods = list; pyIdx = null;
@@ -542,7 +545,7 @@
       if (!q.startsWith(w)) continue;
       const rest = q.slice(w.length).replace(/^的/, ''), mine = list.filter(f => (f.brand || []).includes(b));
       if (!mine.length) break;
-      return rest ? searchIn(rest, mine, limit) : mine.slice(0, limit);
+      return rest ? searchIn(rest, mine, limit) : mine.slice(0, Math.max(limit, 400)); // 只打店名：整家菜單都列出來
     }
     return searchIn(q, list, limit);
   }

@@ -449,7 +449,7 @@
       const ov = new Set(S.custom.map(o => o.id)), res = NL.search(q, 50), ext = NL.searchList(q, EXT, 60).filter(f => !ov.has(f.id)), seen = new Set(res.map(f => f.name)), br = NL.searchBrand(q, BEXT, 60).filter(f => !seen.has(f.name) && !ov.has(f.id));
       // 打的整串字只有店家品項的名稱裡有（可樂果、沙士），店家區塊排到內建前面，不被「可樂」這種只對到一半的擋住
       const ql = q.toLowerCase(), hasQ = f => f.name.toLowerCase().includes(ql), brFirst = br.some(hasQ) && !res.some(hasQ);
-      const brHtml = br.length ? `<div class="sec">超商・連鎖店 · ${br.length >= 60 ? '60+' : br.length} 筆<em>每筆標明官網標示或估算</em></div>` + br.map(f => foodRow(f, q)).join('') : '';
+      const brHtml = br.length ? `<div class="sec">超商・連鎖店 · ${br.length === 60 || br.length === 400 ? br.length + '+' : br.length} 筆<em>每筆標明官網標示或估算</em></div>` + br.map(f => foodRow(f, q)).join('') : '';
       const resHtml = res.length ? `<div class="sec">${res.length} 筆結果 · 記到${mealName(S.meal)}</div>` + res.map(f => f.recipe ? recipeRow(S.recipes.find(x => x.id === f.id)) : foodRow(f, q)).join('') : ext.length || br.length ? '' : `<div class="nores">找不到「${esc(q)}」</div>`;
       html = `<button class="btn ghost nfbtn" data-act="newfood">＋ 新增自訂食物${res.length || ext.length || br.length ? '' : '「' + esc(q) + '」'}</button>` + (brFirst ? brHtml + resHtml : resHtml + brHtml);
       if (ext.length) html += `<div class="sec">衛福部食品營養成分資料庫 · ${ext.length >= 60 ? '60+' : ext.length} 筆<em>每 100 克／毫升</em></div>` + ext.map(f => foodRow(f, q)).join('');
