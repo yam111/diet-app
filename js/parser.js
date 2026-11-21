@@ -545,7 +545,8 @@
       if (!q.startsWith(w)) continue;
       const rest = q.slice(w.length).replace(/^的/, ''), mine = list.filter(f => (f.brand || []).includes(b));
       if (!mine.length) break;
-      return rest ? searchIn(rest, mine, limit) : mine.slice(0, Math.max(limit, 400)); // 只打店名：整家菜單都列出來
+      if (!rest) return mine.slice(0, Math.max(limit, 400)); // 只打店名：整家菜單都列出來
+      const r = searchIn(rest, mine, limit); r.byBrand = b; return r; // 店名＋品名：畫面上店家那區排前面
     }
     return searchIn(q, list, limit);
   }
