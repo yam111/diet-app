@@ -422,11 +422,12 @@
   const CATS = ['主食', '飯麵', '早餐', '蛋白質', '蛋豆', '便當菜', '蔬菜', '水果', '小吃', '速食', '超商', '連鎖餐廳', '好事多', '異國', '飲料', '手搖飲', '咖啡', '湯', '點心', '油脂堅果', '調味料'];
   // 搜尋是從下方跳出的視窗（按各餐的＋或下方「搜尋」），不是另一頁
   function openSearch(meal, q = '') {
-    S.meal = meal || S.meal || NL.mealByHour(new Date().getHours() + new Date().getMinutes() / 60); S.q = q; S.cat = '';
-    sheet(searchHTML(), stopRec, 'srch'); renderResults(); refreshShared();
+    S.meal = meal || S.meal || NL.mealByHour(new Date().getHours() + new Date().getMinutes() / 60); S.q = q; S.cat = ''; SSCROLL = 0;
+    sheet(searchHTML(), stopRec, 'srch'); inSrch = true; renderResults(); refreshShared();
     if (!q) setTimeout(() => { const i = $('#q'); if (i) i.focus(); }, 380);
   }
-  function backToSearch() { sheet(searchHTML(), stopRec, 'srch'); renderResults(); }
+  // 回搜尋：打的字、分類、捲到哪裡都照原本的
+  function backToSearch() { const y = SSCROLL; sheet(searchHTML(), stopRec, 'srch'); inSrch = true; renderResults(); const b = $('#results'); if (b) b.scrollTop = y; }
   function searchHTML() {
     return `<div class="shead"><div class="sttl"><h2>加到${S.date === today() ? '' : shortDate(S.date) + '的'}<span id="smn">${mealName(S.meal)}</span></h2><button class="xbtn" data-act="close" aria-label="關閉">×</button></div>
       <div class="searchbox"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.500"/><path d="m16 16 4.500 4.500"/></svg><input id="q" type="search" placeholder="搜尋食物…" value="${esc(S.q)}" autocomplete="off" enterkeyhint="search"><button data-act="clearq" ${S.q ? '' : 'hidden'}>×</button>${SR ? `<button class="srmic" id="srmic" data-act="srmic" aria-label="用講的搜尋">${MIC}</button>` : ''}<button class="bcbtn" data-act="scan" aria-label="掃條碼"><svg viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M8 8v8M11 8v8M14 8v8M17 8v8"/></svg></button></div>
@@ -434,7 +435,7 @@
       <div id="results" class="sbody"></div>`;
   }
   function hl(name, q) { if (!q) return esc(name); const set = new Set([...q.toLowerCase()]); return [...name].map(ch => set.has(ch.toLowerCase()) ? '<mark>' + esc(ch) + '</mark>' : esc(ch)).join(''); }
-  function foodRow(f, q) { const u = f.units[0], k = r0(f.kcal * u.g / 100); return `<button class="food" data-act="pick" data-fid="${esc(f.id)}"><span class="n"><b>${hl(f.name, q)}</b><small>1 ${esc(u.n)}${gpart(f)} · ${esc(f.cat || '自訂')}${f.st ? '・' + esc(f.st) : ''}${f.brand && f.brand.length ? ' · ' + esc(f.brand.slice(0, 3).join('、')) : ''}</small></span><span class="k">${k}<small>kcal</small></span><span class="plus">+</span></button>`; }
+  function foodRow(f, q) { const u = f.units[0], k = r0(f.kcal * u.g / 100); return `<button class="food" data-act="pick" data-fid="${esc(f.id)}"><span class="n"><b>${hl(f.name, q)}</b><small>1 ${esc(u.n)}${gpart(f)} · ${esc(f.cat || '自訂')}${f.st ? '・' + esc(f.st) : ''}${(bl => bl.length ? ' · ' + esc(bl.join('、')) : '')((f.brand || []).filter(x => x !== f.cat).slice(0, 3))}</small></span><span class="k">${k}<small>kcal</small></span><span class="plus">+</span></button>`; }
   function recentRow(f) {
     const e = lastEntry(f.id), vf = e && foodById(e.fid);
     const del = `<button class="rcx" data-act="rcdel" data-fid="${esc(f.id)}" aria-label="從最近吃過移除">×</button>`;
@@ -502,7 +503,8 @@
       ${Q.ing != null ? `<div class="btnrow"><button class="btn ghost" style="flex:.6" data-act="rback">返回</button><button class="btn" data-act="qsave">${Q.ing >= 0 ? '更新食材' : '加到食譜'}</button></div>`
         : Q.editId ? `<div class="btnrow"><button class="btn danger" style="flex:.6" data-act="qdel">刪除</button><button class="btn" data-act="qsave">儲存</button></div>` : `<button class="btn" data-act="qsave">加入${mealName(Q.meal)}</button>`}
       ${f.recipe ? `<button class="linkbtn" data-act="redit" data-rid="${esc(f.id)}">編輯這個食譜</button>` : ''}
-      ${Q.ing == null && !f.recipe && !String(f.id).includes('@') && foodById(f.id) ? `<button class="linkbtn" data-act="cfedit" data-fid="${esc(f.id)}">數字不對？修改這個食物的營養資料${f.barcode ? '（條碼 ' + esc(f.barcode) + '）' : ''}</button>` : ''}`);
+      ${Q.ing == null && !f.recipe && !String(f.id).includes('@') && foodById(f.id) ? `<button class="linkbtn" data-act="cfedit" data-fid="${esc(f.id)}">數字不對？修改這個食物的營養資料${f.barcode ? '（條碼 ' + esc(f.barcode) + '）' : ''}</button>` : ''}`, null, '',
+      Q.ing != null ? drawRecipe : Q.fromVoice && LR ? () => drawResult(LR.text, LR.added, LR.unknown) : Q.fromSearch && inSrch ? backToSearch : null);
     updQty();
   }
   function updQty() { const g = qGrams(), v = calc(Q.food, g); $('#qk').textContent = v.kcal; $('#qp').textContent = v.p; $('#qc').textContent = v.c; $('#qf').textContent = v.f; $('#qx').innerHTML = nxLine(Q.food, v); $('#qg').textContent = Q.unit < 0 || Q.food.nog ? '' : '約 ' + r0(g) + ' ' + gu(Q.food);
@@ -516,7 +518,8 @@
       return drawRecipe();
     }
     if (Q.food.recipe) { const r = S.recipes.find(x => x.id === Q.food.id);
-      if (r) { logRecipe(r, g / Q.food.units[0].g, Q.meal); closeSheet(); toast('已拆成 ' + r.items.length + ' 樣加入' + mealName(Q.meal)); goMeal(Q.meal); return; } }
+      if (r) { logRecipe(r, g / Q.food.units[0].g, Q.meal); toast('已拆成 ' + r.items.length + ' 樣加入' + mealName(Q.meal));
+        if (Q.fromSearch && inSrch) { S.pendingMeal = Q.meal; render(); backToSearch(); return; } closeSheet(); goMeal(Q.meal); return; } }
     if (g > 3000 && !Q.food.nog && !confirm(`份量是 ${r0(g)} ${gu(Q.food)}，確定沒有多打一個 0 嗎？`)) return;
     const old = Q.editId ? findEntry(Q.editId) : null;
     const label = u ? a + ' ' + u.n : r0(g) + ' ' + gu(Q.food); const extra = { ...(u ? { unit: u.n, amount: a } : {}), ...(old && old.e.recipe ? { recipe: old.e.recipe } : {}) };
@@ -526,6 +529,9 @@
     if (Q.fromVoice && LR && old) { // 從語音結果點進來改的：改完回到結果清單
       const i = LR.added.findIndex(x => x.e.id === Q.editId); if (i >= 0) LR.added[i] = { e: ne, it: { ...LR.added[i].it, meal: Q.meal, est: false } };
       S.lastBatch = (S.lastBatch || []).map(id => id === Q.editId ? ne.id : id); render(); drawResult(LR.text, LR.added, LR.unknown); return toast('已更新'); }
+    if (!Q.editId && Q.fromSearch && inSrch) { // 從搜尋加的：回到搜尋結果繼續加，關掉搜尋時才跳到那一餐
+      S.pendingMeal = Q.meal; render(); const fid = Q.food.id; backToSearch(); toast('已加入' + mealName(Q.meal) + '「' + Q.food.name + '」' + ne.kcal + ' 大卡');
+      const fl = $(`#results [data-fid="${CSS.escape(fid)}"] .plus, #results .plus[data-fid="${CSS.escape(fid)}"]`); if (fl) fl.classList.add('done'); return; }
     closeSheet(); toast(Q.editId ? '已更新' : '已加入' + mealName(Q.meal));
     if (Q.editId && old && old.meal === Q.meal) render(); else goMeal(Q.meal, ne.id);
   }
@@ -563,10 +569,12 @@
         ${NX.map(([k, n, u]) => `<div class="field"><label>${n}</label><input id="nf-${k}" type="number" inputmode="decimal" placeholder="不知道" value="${edit && edit[k] != null ? (k === 'na' ? r0(edit[k] * u0g(edit) / 100) : Math.round(edit[k] * u0g(edit)) / 100) : ''}"><span class="u">${u}</span></div>`).join('')}
         <p class="note" style="margin-top:8px">照包裝「每一份量」填；沒寫的空著就好（空著＝不知道，不會當成 0）。</p></details>
       <p class="note">熱量沒填的話，會用三大營養素自動算（蛋白質、碳水每克 4 大卡，脂肪每克 9 大卡）。</p>
-      ${o.net ? '<button class="btn" data-act="nfsave">對好了，加入紀錄</button>' : edit ? `<div class="btnrow">${mine ? `<button class="btn danger" style="flex:.6" data-act="cfdel">${base ? '還原' : '刪除'}</button>` : ''}<button class="btn" data-act="nfsave">儲存</button></div>` : `<button class="btn" data-act="nfsave">${o.from === 'me' ? '儲存' : '儲存並加入紀錄'}</button>`}`, stopRec);
+      ${o.net ? '<button class="btn" data-act="nfsave">對好了，加入紀錄</button>' : edit ? `<div class="btnrow">${mine ? `<button class="btn danger" style="flex:.6" data-act="cfdel">${base ? '還原' : '刪除'}</button>` : ''}<button class="btn" data-act="nfsave">儲存</button></div>` : `<button class="btn" data-act="nfsave">${o.from === 'me' ? '儲存' : '儲存並加入紀錄'}</button>`}`, stopRec, '',
+      o.back ? nfBack : o.from === 'me' ? null : inSrch ? backToSearch : null);
     NFNET = !!o.net;
   }
   const u0g = f => f.units[0].g;
+  function nfBack() { const b = NFO.back; NFO = {}; NFED = null; if (b) openQty(foodById(b.f.id) || b.f, b.q); else if (inSrch) backToSearch(); else closeSheet(); }
   function saveNewFood() {
     const v = id => parseFloat($(id).value) || 0; const name = $('#nf-n').value.trim(); let g = v('#nf-g');
     if (!name) return toast('請輸入名稱'); if (!NFNOG && !(g > 0)) return toast(NFLIQ ? '請輸入每份容量' : '請輸入每份重量');
@@ -588,7 +596,7 @@
     const o = NFO; NFO = {};
     if (o.from === 'me') { closeSheet(); if (!ed) toast('已新增「' + name + '」'); return render(); }
     if (o.from === 'entry' && o.q && o.q.entry) return openQty(food, o.q);
-    openQty(food, { fromSearch: true });
+    openQty(food, { fromSearch: inSrch });
   }
   // 更多營養素：填了才存（每 100 克），空著＝不知道
   const nfVal = k => { const i = $('#nf-' + k); if (!i || i.value.trim() === '') return null; const v = parseFloat(i.value); return isFinite(v) && v >= 0 ? v : null; };
@@ -605,7 +613,7 @@
     S.custom = S.custom.filter(o => o.id !== id); if (!base) S.recent = S.recent.filter(x => x !== id);
     save('SG_CUSTOM', S.custom); save('SG_RECENT', S.recent); rebuildFoods(); NFED = null;
     toast((base ? '已還原「' : '已刪除「') + f.name + '」'); const from = NFO.from; NFO = {};
-    if (from === 'me') { closeSheet(); render(); } else backToSearch();
+    if (from === 'me' || !inSrch) { closeSheet(); render(); } else backToSearch();
   }
 
   // ---------- 掃條碼：先找自己存過的，再查 Open Food Facts 開放資料庫，都沒有就照包裝標示填一次 ----------
@@ -616,7 +624,7 @@
       <div class="scanbox"><video id="scv" playsinline muted autoplay></video><i></i></div>
       <p class="note" id="scmsg">開啟相機中…</p>
       <div class="field"><label>或輸入條碼數字</label><input id="bc-in" type="text" inputmode="numeric" autocomplete="off" style="width:160px" placeholder="例如 4710…"></div>
-      <button class="btn" data-act="bcgo">查詢</button>`, stopScan, 'scan');
+      <button class="btn" data-act="bcgo">查詢</button>`, stopScan, 'scan', inSrch ? backToSearch : null);
     startScan();
   }
   async function startScan() {
@@ -648,13 +656,13 @@
     for (const [k, key] of Object.entries(m)) { const v = parseFloat(n[key]); if (isFinite(v) && v >= 0) o[k] = nxR(k, k === 'na' ? v * 1000 : v); } return o; }
   async function lookupBarcode(code) {
     code = String(code || '').replace(/\D/g, ''); if (code.length < 8) return toast('條碼是 8～13 位數字');
-    const mine = S.custom.find(f => f.barcode === code); if (mine) return openQty(mine, { fromSearch: true });
+    const mine = S.custom.find(f => f.barcode === code); if (mine) return openQty(mine, { fromSearch: inSrch });
     const m = $('#scmsg'); if (m) m.textContent = '查詢條碼 ' + code + '…';
     // 共用條碼庫：先問最新的（別人剛掃過的也找得到），沒網路或太慢就用手機裡存的那份
     let sh = null;
     try { const ac = new AbortController(), t = setTimeout(() => ac.abort(), 5000); const items = await fetch(SHARE_URL + '?bc=' + code, { cache: 'no-store', signal: ac.signal }).then(r => r.json()).then(j => j && j.ok ? j.items : null); clearTimeout(t); if (items) sh = items[0] ? sharedFood(items[0]) : false; } catch (e) { }
     if (sh == null) sh = SHARED.find(f => f.barcode === code);
-    if (sh) { EXTMAP.set(sh.id, sh); return openQty(sh, { fromSearch: true }); }
+    if (sh) { EXTMAP.set(sh.id, sh); return openQty(sh, { fromSearch: inSrch }); }
     try {
       const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,product_name_zh,brands,nutriments,serving_quantity,serving_size,quantity`);
       const j = await r.json(), p = j.product || {}, n = p.nutriments || {};
@@ -688,7 +696,7 @@
     const r = id && S.recipes.find(x => x.id === id);
     RE = r ? { id: r.id, name: r.name, alias: (r.alias || []).join('、'), yields: r.yields || 1, items: r.items.map(x => ({ ...x })), q: '' }
       : { id: null, name: '', alias: '', yields: 1, items: preset || [], q: '' };
-    RE.fs = !!$('.sheet.srch');
+    RE.fs = inSrch; RE.back = inSrch ? backToSearch : $('.sheet .result') && LR ? (l => () => drawResult(l.text, l.added, l.unknown))(LR) : null;
     drawRecipe();
   }
   function drawRecipe() {
@@ -705,7 +713,7 @@
       <div class="typebox"><textarea id="re-q" class="grow" rows="1" placeholder="搜尋食材，或整句打完按加入" autocomplete="off" enterkeyhint="done">${esc(RE.q)}</textarea><button data-act="readd">加入</button></div>
       <div id="re-res"></div>
       <div id="re-sum">${reSum()}</div>
-      ${RE.id ? `<div class="btnrow"><button class="btn danger" style="flex:.6" data-act="rerm">刪除食譜</button><button class="btn" data-act="resave">儲存</button></div>` : `<button class="btn" data-act="resave" style="margin-top:16px">儲存食譜</button>`}`);
+      ${RE.id ? `<div class="btnrow"><button class="btn danger" style="flex:.6" data-act="rerm">刪除食譜</button><button class="btn" data-act="resave">儲存</button></div>` : `<button class="btn" data-act="resave" style="margin-top:16px">儲存食譜</button>`}`, null, '', RE.back);
     reResults();
   }
   function reSum() {
@@ -1003,9 +1011,12 @@
   }
 
   // ---------- 面板／提示 ----------
-  let onClose = null, skipPop = false;
-  function sheet(html, closeFn, cls = '') {
+  // BACK：這個面板按 ×／往下滑／返回鍵要回去的上一層（例如從搜尋點進去的食物 → 回搜尋結果），沒有就整個關掉
+  let onClose = null, skipPop = false, BACK = null, inSrch = false, SSCROLL = 0;
+  function sheet(html, closeFn, cls = '', back = null) {
     if (onClose) { const f = onClose; onClose = null; f(); }
+    const sb = $('.sheet.srch #results'); if (sb) SSCROLL = sb.scrollTop;
+    inSrch = inSrch && !!back; BACK = back || null; // 開了不會回搜尋的面板，就不算還在搜尋裡
     onClose = closeFn || null;
     const had = !!$('#sheets .sheet');
     if (!had && !(history.state && history.state.sg)) history.pushState({ sg: 1 }, '');
@@ -1013,10 +1024,12 @@
   }
   function closeSheet(fromBack) {
     const open = !!$('#sheets .sheet');
+    BACK = null; inSrch = false;
     if (onClose) { const f = onClose; onClose = null; f(); } $('#sheets').innerHTML = ''; if (S.pendingMeal && S.profile) goMeal(S.pendingMeal);
     // 等一下再退回上一頁：關掉之後馬上又開別的視窗（例如沒認出的字→搜尋）就沿用同一筆，不退
     if (!fromBack && open) setTimeout(() => { if (!$('#sheets .sheet') && history.state && history.state.sg) { skipPop = true; history.back(); } }, 0);
   }
+  function dismiss() { if (BACK) { const b = BACK; b(); } else closeSheet(); }
   // 往下拉關面板：面板捲在最上面時往下拖，拖夠遠或甩得夠快就關，不夠就彈回去
   (() => {
     let sh = null, y0 = 0, t0 = 0, dy = 0, drag = false;
@@ -1038,12 +1051,12 @@
       if (dy > Math.min(140, s.offsetHeight * .28) || (v > .55 && dy > 40)) {
         s.style.transition = 'transform .2s ease-in'; s.style.transform = 'translateY(100%)';
         const sc = s.parentNode; if (sc) { sc.style.transition = 'opacity .2s'; sc.style.opacity = '0'; }
-        setTimeout(() => { if (s.isConnected) closeSheet(); }, 190);
+        setTimeout(() => { if (!s.isConnected) return; if (BACK) { s.style.transition = 'none'; s.style.transform = ''; const sc = s.parentNode; if (sc) sc.style.opacity = ''; } dismiss(); }, 190);
       } else { s.style.transition = 'transform .25s cubic-bezier(.2,.9,.2,1)'; s.style.transform = ''; }
     };
     host.addEventListener('touchend', end); host.addEventListener('touchcancel', end);
   })();
-  window.addEventListener('popstate', () => { if (skipPop) { skipPop = false; return; } if ($('#sheets .sheet')) closeSheet(true); });
+  window.addEventListener('popstate', () => { if (skipPop) { skipPop = false; return; } if (!$('#sheets .sheet')) return; if (BACK) { history.pushState({ sg: 1 }, ''); dismiss(); } else closeSheet(true); });
   // undo：給了就在提示旁邊放「復原」，4 秒內可以按
   let tt, tUndo = null; function toast(msg, undo) {
     const t = $('#toast'); tUndo = undo || null; t.textContent = ''; const sp = document.createElement('span'); sp.textContent = msg; t.appendChild(sp); t.classList.toggle('act', !!undo);
@@ -1057,7 +1070,7 @@
     const set = ev.target.closest('[data-set]'); if (set) return setProfile(set.dataset.set, set.dataset.v);
     const el = ev.target.closest('[data-act]'); if (!el) return;
     const a = el.dataset.act;
-    if (a === 'scrim') { if (ev.target === el) closeSheet(); return; }
+    if (a === 'scrim') { if (ev.target === el) dismiss(); return; }
     switch (a) {
       case 'day': S.date = addDays(S.date, +el.dataset.n); if (S.date > today()) S.date = today(); render(); break;
       case 'goday': S.date = el.dataset.k; S.tab = 'today'; view.scrollTop = 0; render(); break;
@@ -1089,7 +1102,7 @@
       case 'nfliq': NFLIQ = el.dataset.v === '1'; NFNOG = el.dataset.v === '2'; $('#nf-gf').style.display = NFNOG ? 'none' : ''; $('#nf-nogn').style.display = NFNOG ? '' : 'none'; document.querySelectorAll('#nf-liq button').forEach(b => b.classList.toggle('on', b === el)); $('#nf-gl').textContent = NFLIQ ? '每份容量' : '每份重量'; $('#nf-gu').textContent = NFLIQ ? '毫升' : '克'; break;
       case 'cfedit': { const f = foodById(el.dataset.fid); if (!f) break; const from = el.dataset.from || (Q && Q.editId ? 'entry' : 'qty'); const q = from === 'entry' ? { meal: Q.meal, editId: Q.editId, entry: findEntry(Q.editId) && findEntry(Q.editId).e, fromVoice: Q.fromVoice } : null;
         openNewFood('', '', f, { from, q, back: from === 'me' || !Q ? null : { f: Q.food, q: q || { meal: Q.meal, fromSearch: Q.fromSearch, ing: Q.ing } } }); break; }
-      case 'nfback': { const b = NFO.back; NFO = {}; NFED = null; if (b) openQty(foodById(b.f.id) || b.f, b.q); else closeSheet(); break; }
+      case 'nfback': nfBack(); break;
       case 'rcdel': { const old = S.recent.slice(), f = foodById(el.dataset.fid); S.recent = S.recent.filter(x => x !== el.dataset.fid); save('SG_RECENT', S.recent); renderResults();
         toast('已從最近吃過移除' + (f ? '「' + f.name + '」' : ''), () => { S.recent = old; save('SG_RECENT', S.recent); renderResults(); }); break; }
       case 'rcclear': { const old = S.recent.slice(); S.recent = []; save('SG_RECENT', S.recent); renderResults();
@@ -1120,7 +1133,7 @@
         removeEntry(o.id, d); const ne = addEntry(food, grams, label, f.meal, extra, d);
         x.e = ne; S.lastBatch = (S.lastBatch || []).map(id => id === o.id ? ne.id : id); render(); drawResult(LR.text, LR.added, LR.unknown); toast('換成「' + food.name + '」'); break; }
       case 'unk': closeSheet(); S.tab = 'today'; render(); openSearch(null, el.dataset.q); break;
-      case 'close': closeSheet(); break;
+      case 'close': dismiss(); break;
       case 'start': S.profile = draft; save('SG_PROFILE', S.profile); S.tab = 'today'; view.scrollTop = 0; render(); toast('設定完成，開始記錄吧'); break;
       case 'wpick': WD = el.dataset.k; render(); setTimeout(() => { const i = $('#wt'); if (i) i.focus(); }, 50); break;
       case 'wsave': saveWeight($('#wt').value, WD); break;
