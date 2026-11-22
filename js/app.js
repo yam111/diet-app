@@ -559,6 +559,7 @@
     const u = edit && edit.units[0], per = v => edit ? r1(NFB ? v : v * u.g / 100) : '';
     const mine = edit && S.custom.some(x => x.id === edit.id), base = edit && (FOODS.find(x => x.id === edit.id) || EXTMAP.get(edit.id));
     sheet(`${(barcode && !edit) || o.net ? '<button class="backbtn" data-act="scan">‹ 重新掃描</button>' : o.back ? '<button class="backbtn" data-act="nfback">‹ 返回</button>' : ''}<h2>${o.net ? '對一下包裝' : edit ? '修改食物資料' : '新增自訂食物'}</h2><div class="sub">${o.net ? `網路上找到這個條碼（Open Food Facts，大家上傳的資料，可能是舊包裝或打錯）。請跟包裝背面的「營養標示」對一下，不一樣就照包裝改。${o.net === 'nosv' ? '網路資料沒寫每份多重，請照包裝「每一份量」填上面的每份重量。' : ''}存好之後，掃這個條碼都用你對過的數字。` : edit ? (String(edit.id).startsWith('s_') && !mine ? '這是其他人掃這個條碼時照包裝填的數字。跟包裝對一下，不一樣就照包裝改。' : base && !mine ? '這是內建的數字（參考衛福部資料或一般做法估算）。照包裝或你吃的那家改，之後記的、說話記的都用你的數字；隨時可以還原。' : '照包裝上的「每一份量」營養標示改。') + '已經記過的紀錄不會變，要套新數字就點那一筆再按儲存。' : barcode ? `條碼 ${esc(barcode)} 還沒有資料。照包裝背面的營養標示填一次，下次掃這個條碼就直接帶出來。` : '照包裝上的「每一份量」營養標示填就可以'}${barcode || o.net || (edit && edit.barcode) ? '<p class="note" style="margin-top:6px">有條碼的食物存好後會分享到共用食物庫，其他人掃同一個條碼就查得到（只分享條碼、品名和營養數字）。</p>' : ''}</div>
+      <label class="nfmic nfocr"><input type="file" id="nf-ocr" accept="image/*" hidden>${CAMI}<span>拍營養標示，自動填數字</span></label><p class="note" id="nf-ocrm" style="display:none;margin:4px 0 8px"></p>
       ${SR ? `<button class="nfmic" id="nfmic" data-act="nfmic">${MIC}<span>用講的填</span></button><div class="nfheard" id="nfheard">點一下開始講，邊講邊填進下面的欄位。可以一次念完，例：「老饕廚房番茄雞胸肉，每份 180 克，熱量 250，蛋白質 30，碳水 12，脂肪 8，鈉 450」；也可以只講名稱、或只講其中幾項，沒講到的不會動。</div><textarea id="nftx" class="tx grow nftx" rows="1" style="display:none" placeholder="聽到的字會出現在這裡，可以直接改"></textarea>` : ''}
       <div class="field"><label>名稱</label><textarea id="nf-n" class="tx grow" rows="1" placeholder="例如：公司樓下雞肉飯">${esc(edit ? edit.name : name)}</textarea></div>
       <div class="seg sm" id="nf-liq" style="margin:4px 0 2px"><button data-act="nfliq" data-v="0" class="${NFLIQ || NFNOG ? '' : 'on'}">吃的（克）</button><button data-act="nfliq" data-v="1" class="${NFLIQ ? 'on' : ''}">喝的（毫升）</button><button data-act="nfliq" data-v="2" class="${NFNOG ? 'on' : ''}">不知道重量</button></div>
@@ -577,9 +578,28 @@
       ${o.net ? '<button class="btn" data-act="nfsave">對好了，加入紀錄</button>' : edit ? `<div class="btnrow">${mine ? `<button class="btn danger" style="flex:.6" data-act="cfdel">${base ? '還原' : '刪除'}</button>` : ''}<button class="btn" data-act="nfsave">儲存</button></div>` : `<button class="btn" data-act="nfsave">${o.from === 'me' ? '儲存' : '儲存並加入紀錄'}</button>`}`, stopRec, '',
       o.back ? nfBack : o.from === 'me' ? null : inSrch ? backToSearch : null);
     NFNET = !!o.net; NFV = {};
+    const oi = $('#nf-ocr'); if (oi) oi.onchange = () => { const f = oi.files && oi.files[0]; oi.value = ''; if (f) nfOcr(f); };
     const tx = $('#nftx'); if (tx) { tx.oninput = () => nfFill(tx.value, !!LS); tx.onfocus = () => { if (LS) LS.finish(); }; }
   }
   const u0g = f => f.units[0].g;
+  const CAMI = '<svg viewBox="0 0 24 24"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13.5" r="3.5"/></svg>';
+  // 拍營養標示：讀出來的數字填進欄位（有讀到的才填），讀不到的告訴他自己補
+  async function nfOcr(file) {
+    const m = $('#nf-ocrm'), say = t => { if (m) { m.style.display = ''; m.textContent = t; } };
+    try {
+      await loadScript('js/label.js'); const text = await LabelOCR.read(file, say); if (!$('#nf-k')) return;
+      const r = LabelOCR.parse(text), v = r.vals || {}, NM = { k: '熱量', p: '蛋白質', c: '碳水', f: '脂肪', sug: '糖', na: '鈉', sat: '飽和脂肪', tr: '反式脂肪', fib: '膳食纖維' };
+      if (r.basis == null) return say('讀不到營養標示的數字。請拍正、拍近一點（整個表格就好、不要反光），或直接手打。');
+      if (r.liq != null && !NFNOG && !!r.liq !== NFLIQ) { const b = $(`#nf-liq button[data-v="${r.liq}"]`); if (b) b.click(); }
+      if (NFNOG) { const b = $('#nf-liq button[data-v="' + (r.liq ? 1 : 0) + '"]'); if (b) b.click(); }
+      if (r.g > 0) $('#nf-g').value = r.g;
+      if (r.basis !== NFB) { NFB = r.basis; document.querySelectorAll('#nf-b button').forEach(x => x.classList.toggle('on', +x.dataset.v === NFB)); $('#nf-bn').textContent = nfBNote(); $('#nf-kl').textContent = NFB ? '每 100 ' + (NFLIQ ? '毫升' : '克') + '熱量' : '每份熱量'; }
+      const got = [], miss = [];
+      for (const k of Object.keys(NM)) { const i = $('#nf-' + k); if (!i) continue; if (v[k] != null) { i.value = k === 'na' ? r0(v[k]) : r1(v[k]); got.push(NM[k]); i.classList.add('ocrhit'); } else if (['k', 'p', 'c', 'f'].includes(k)) miss.push(NM[k]); }
+      if (NXK.some(k => v[k] != null)) { const d = $('#nfmore'); if (d) d.open = true; }
+      say(`讀到 ${got.join('、')}${r.g > 0 ? '、每份 ' + r.g + (r.liq ? ' 毫升' : ' 克') : '（每份重量沒讀到，請自己填）'}。${miss.length ? miss.join('、') + '沒讀到，請自己補。' : ''}辨識可能看錯字，請跟包裝對一下再存。`);
+    } catch (e) { say('沒辦法辨識（第一次要連網下載辨識檔），可以直接手打。'); }
+  }
   // 切換「每一份量／每 100 克」：已經填的數字照每份重量換算過去（不會白填）
   function nfSetB(b) {
     if (b === NFB) return; const g = parseFloat($('#nf-g').value) || 0;
@@ -874,7 +894,7 @@
     if (nm && nm[1].replace(/[，,、。是：:]/g, '')) out.n = nm[1].replace(/^[是：:]|[，,、。]/g, '');
     // 沒說「名稱」：數字前面講的就當品名（「老饕廚房番茄雞胸肉 熱量 250 蛋白質 30…」）
     if (out.n == null) {
-      const raw = String(text || '').replace(/\s+/g, ''), m = /熱量|蛋白|碳水|醣類|脂肪|油脂|能量|鈉|飽和|反式|膳食纖維|每份|每(?:包|瓶|罐|盒|條|片|顆|杯)|份量|重量|容量|淨重|營養|[\d零〇一二兩三四五六七八九十百千]+(?:點[\d零〇一二三四五六七八九]+)?(?:大卡|卡|克|公克|毫升)/.exec(raw);
+      const raw = String(text || '').replace(/\s+/g, ''), m = /熱量|蛋白|碳水|醣類|脂肪|油脂|能量|鈉|糖(?:類|分)?(?=[\d零〇一二兩三四五六七八九])|飽和|反式|膳食纖維|每份|每(?:包|瓶|罐|盒|條|片|顆|杯)|份量|重量|容量|淨重|營養|[\d零〇一二兩三四五六七八九十百千]+(?:點[\d零〇一二三四五六七八九]+)?(?:大卡|卡|克|公克|毫升)/.exec(raw);
       const nums = ['k', 'p', 'c', 'f', 'g', ...NXK].some(k => out[k] != null);
       let n = (m ? raw.slice(0, m.index) : nums ? '' : raw).replace(/[，,、。：:！!？?]/g, '').replace(/^(?:那|嗯|呃|然後|好)*(?:我要)?(?:新增|加入|記錄?|紀錄)?(?:一個|一下)?(?:這個|這是|品名是?|是)?/, '').replace(/(?:的|它|他)?(?:營養標示|標示)?(?:是|有)?$/, '').replace(/[\d零〇一二兩三四五六七八九十]+(?:份|個|包|盒|瓶|罐|條|片|顆)$/, '');
       if (n.length >= 2 && n.length <= 30) out.n = n;
