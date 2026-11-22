@@ -92,16 +92,19 @@
   const sharedFood = ([bc, name, g, liq, k, p, c, f, ...nx]) => ({ id: bc ? 's_' + bc : 's_n' + nameKey(name), name, alias: [], kcal: k, p, c, f, ...nxOf(nx), units: [{ n: '份', g: g > 0 ? g : 100 }], cat: bc ? '條碼' : '大家新增', ...(bc ? { st: '大家掃的' } : {}), ...(bc ? { barcode: bc } : {}), liq: liq === 1 ? 1 : 0, ...(liq === 2 ? { nog: 1 } : {}), ext: 1 });
   const shKey = it => Array.isArray(it) ? (it[0] || 'n:' + it[1]) : (it.barcode || 'n:' + it.name);
   let SHARED = [];
-  function setShared(items) { for (const x of SHARED) EXTMAP.delete(x.id); SHARED = items.map(sharedFood); for (const x of SHARED) EXTMAP.set(x.id, x); if (ALL.length) rebuildFoods(); }
+  // 刪掉的共用食物（自己新增錯的、重複的）：記在手機裡，Firebase 也留一筆「已刪除」讓大家的 App 都拿掉
+  const shDel = () => new Set(load('SG_SHDEL', []));
+  function setShared(items) { for (const x of SHARED) EXTMAP.delete(x.id); const del = shDel(); SHARED = items.filter(r => !del.has(shKey(r))).map(sharedFood); for (const x of SHARED) EXTMAP.set(x.id, x); if (ALL.length) rebuildFoods(); }
   setShared(load('SG_SHARED', []));
   const fetchShared = (q = '') => fetch(SHARE_URL + q, { cache: 'no-store' }).then(r => r.json()).then(j => j && j.ok && Array.isArray(j.items) ? j.items : Promise.reject());
   // 共用庫有兩個來源：Firebase（即時：別人一存，這邊幾秒內就自動出現）＋ Apps Script 試算表（舊版 App 還在用、也當備份）
   // 兩邊合起來，同一筆以 Firebase 為準，自己還沒送出的排最後（最新）
-  let gasItems = null, fsItems = null;
+  let gasItems = null, fsItems = null, fsDel = new Set();
   const qRow = x => [x.barcode || '', x.name, x.g, x.liq, x.kcal, x.p, x.c, x.f, ...NXK.map(k => x[k] != null ? x[k] : null)];
   function mergeShared() {
     if (!gasItems && !fsItems) return;
     const m = new Map(); for (const src of [gasItems || [], fsItems || [], load('SG_SHARE_Q', []).map(qRow)]) for (const r of src) m.set(shKey(r), r);
+    const del = shDel(); for (const k of [...m.keys()]) if (fsDel.has(k) || del.has(k)) m.delete(k); // 試算表那份刪不掉，照 Firebase 的「已刪除」拿掉
     const items = [...m.values()]; if (JSON.stringify(items) === JSON.stringify(load('SG_SHARED', []))) return;
     save('SG_SHARED', items); setShared(items); if ($('#results')) renderResults();
   }
@@ -121,7 +124,7 @@
     try {
       const [{ initializeApp }, m] = await Promise.all([import(FBJS + 'firebase-app.js'), import(FBJS + 'firebase-firestore.js')]);
       const db = m.getFirestore(initializeApp(FB)); FS = { m, db };
-      m.onSnapshot(m.collection(db, 'foods'), snap => { fsItems = snap.docs.map(d => d.data().r).filter(r => Array.isArray(r) && r[1]); mergeShared(); }, () => { fsItems = null; });
+      m.onSnapshot(m.collection(db, 'foods'), snap => { const ok = [], del = new Set(); for (const d of snap.docs) { const x = d.data(); if (!Array.isArray(x.r) || !x.r[1]) continue; if (x.d) del.add(shKey(x.r)); else ok.push(x.r); } fsItems = ok; fsDel = del; mergeShared(); }, () => { fsItems = null; });
       flushShare();
     } catch (e) { FS = null; }
   }
@@ -156,15 +159,31 @@
     const no = shareNo(food); if (no) return no; const u = food.units[0];
     const it = { barcode: food.barcode || '', name: food.name, g: u.g, kcal: food.kcal, p: food.p, c: food.c, f: food.f, ...pickNx(food), liq: food.nog ? 2 : food.liq ? 1 : 0 };
     if (!cleanRow(it)) return cleanWhy;
+    if (shDel().has(shKey(it))) { save('SG_SHDEL', load('SG_SHDEL', []).filter(k => k !== shKey(it))); fsDel.delete(shKey(it)); }
+    save('SG_DEL_Q', load('SG_DEL_Q', []).filter(r => shKey(r) !== shKey(it)));
     const q = load('SG_SHARE_Q', []).filter(x => shKey(x) !== shKey(it)); q.push(it); save('SG_SHARE_Q', q.slice(-50)); flushShare();
     const arr = load('SG_SHARED', []).filter(x => shKey(x) !== shKey(it)); arr.push(qRow(it)); save('SG_SHARED', arr); setShared(arr);
     return '';
+  }
+  // 從共用庫刪掉一筆（輸入錯誤、重複的）：手機裡馬上拿掉，Firebase 寫一筆「已刪除」讓大家的 App 也拿掉
+  function delShared(key) {
+    const row = load('SG_SHARED', []).find(r => shKey(r) === key); const r = row && cleanRow({ barcode: row[0], name: row[1], g: row[2], liq: row[3], kcal: row[4], p: row[5], c: row[6], f: row[7], ...Object.fromEntries(NXK.map((k, i) => [k, row[8 + i]])) });
+    save('SG_SHDEL', [...load('SG_SHDEL', []).filter(k => k !== key), key].slice(-300));
+    save('SG_SHARE_Q', load('SG_SHARE_Q', []).filter(x => shKey(x) !== key));
+    if (r) { save('SG_DEL_Q', [...load('SG_DEL_Q', []).filter(x => shKey(x) !== key), r]); flushShare(); }
+    const arr = load('SG_SHARED', []).filter(x => shKey(x) !== key); save('SG_SHARED', arr); setShared(arr);
   }
   let sharing = false;
   // 每筆送兩邊：Firebase（即時給大家）＋試算表（舊版 App 讀得到、留紀錄）；Firebase 確定收到才從佇列拿掉（連不上 Firebase 就照舊只送試算表）
   async function flushShare() {
     if (sharing || !navigator.onLine) return; sharing = true;
     try {
+      for (const r of load('SG_DEL_Q', [])) {
+        if (!FS) break; const { m, db } = FS;
+        try { await Promise.race([m.setDoc(m.doc(db, 'foods', fsId(r)), { r, t: m.serverTimestamp(), d: true }), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 10000))]); }
+        catch (e) { if (!/permission/i.test(e.code || e.message || '')) throw e; continue; } // 被擋就留著下次再送（手機裡已經拿掉了）
+        const j = JSON.stringify(r); save('SG_DEL_Q', load('SG_DEL_Q', []).filter(x => JSON.stringify(x) !== j));
+      }
       for (const it of load('SG_SHARE_Q', [])) {
         const r = cleanRow(it);
         if (FS && r) {
@@ -504,7 +523,7 @@
       ${Q.ing != null ? `<div class="btnrow"><button class="btn ghost" style="flex:.6" data-act="rback">返回</button><button class="btn" data-act="qsave">${Q.ing >= 0 ? '更新食材' : '加到食譜'}</button></div>`
         : Q.editId ? `<div class="btnrow"><button class="btn danger" style="flex:.6" data-act="qdel">刪除</button><button class="btn" data-act="qsave">儲存</button></div>` : `<button class="btn" data-act="qsave">加入${mealName(Q.meal)}</button>`}
       ${f.recipe ? `<button class="linkbtn" data-act="redit" data-rid="${esc(f.id)}">編輯這個食譜</button>` : ''}
-      ${Q.ing == null && !f.recipe && !String(f.id).includes('@') && foodById(f.id) ? `<button class="linkbtn" data-act="cfedit" data-fid="${esc(f.id)}">數字不對？修改這個食物的營養資料${f.barcode ? '（條碼 ' + esc(f.barcode) + '）' : ''}</button>` : ''}`, null, '',
+      ${Q.ing == null && !f.recipe && !String(f.id).includes('@') && foodById(f.id) ? `<button class="linkbtn" data-act="cfedit" data-fid="${esc(f.id)}">${/^(c_|s_)/.test(f.id) ? '數字不對、輸入錯誤或重複？修改或刪除這個食物' : '數字不對？修改這個食物的營養資料'}${f.barcode ? '（條碼 ' + esc(f.barcode) + '）' : ''}</button>` : ''}`, null, '',
       Q.ing != null ? drawRecipe : Q.fromVoice && LR ? () => drawResult(LR.text, LR.added, LR.unknown) : Q.fromSearch && inSrch ? backToSearch : null);
     updQty();
   }
@@ -558,7 +577,7 @@
   function openNewFood(name = '', barcode = '', edit = null, o = {}) {
     NFBC = barcode; NFED = edit; NFO = o; NFNOG = !!(edit && edit.nog); NFLIQ = !NFNOG && (edit && edit.liq != null ? !!edit.liq : NL.isLiquid(edit || { name })); NFB = o.net && !NFNOG ? 1 : 0;
     const u = edit && edit.units[0], per = v => edit ? r1(NFB ? v : v * u.g / 100) : '';
-    const mine = edit && S.custom.some(x => x.id === edit.id), base = edit && (FOODS.find(x => x.id === edit.id) || EXTMAP.get(edit.id));
+    const mine = edit && S.custom.some(x => x.id === edit.id), base = edit && (FOODS.find(x => x.id === edit.id) || EXTMAP.get(edit.id)), canDel = mine || (edit && String(edit.id).startsWith('s_'));
     sheet(`${(barcode && !edit) || o.net ? '<button class="backbtn" data-act="scan">‹ 重新掃描</button>' : o.back ? '<button class="backbtn" data-act="nfback">‹ 返回</button>' : ''}<h2>${o.net ? '對一下包裝' : edit ? '修改食物資料' : '新增自訂食物'}</h2><div class="sub">${o.net ? `網路上找到這個條碼（Open Food Facts，大家上傳的資料，可能是舊包裝或打錯）。請跟包裝背面的「營養標示」對一下，不一樣就照包裝改。${o.net === 'nosv' ? '網路資料沒寫每份多重，請照包裝「每一份量」填上面的每份重量。' : ''}存好之後，掃這個條碼都用你對過的數字。` : edit ? (String(edit.id).startsWith('s_') && !mine ? '這是其他人掃這個條碼時照包裝填的數字。跟包裝對一下，不一樣就照包裝改。' : base && !mine ? '這是內建的數字（參考衛福部資料或一般做法估算）。照包裝或你吃的那家改，之後記的、說話記的都用你的數字；隨時可以還原。' : '照包裝上的「每一份量」營養標示改。') + '已經記過的紀錄不會變，要套新數字就點那一筆再按儲存。' : barcode ? `條碼 ${esc(barcode)} 還沒有資料。照包裝背面的營養標示填一次，下次掃這個條碼就直接帶出來。` : '照包裝上的「每一份量」營養標示填就可以'}${barcode || o.net || (edit && edit.barcode) ? '<p class="note" style="margin-top:6px">有條碼的食物存好後會分享到共用食物庫，其他人掃同一個條碼就查得到（只分享條碼、品名和營養數字）。</p>' : ''}</div>
       <label class="nfmic nfocr"><input type="file" id="nf-ocr" accept="image/*" hidden>${CAMI}<span>拍營養標示，自動填數字</span></label><p class="note" id="nf-ocrm" style="display:none;margin:4px 0 8px"></p>
       ${SR ? `<button class="nfmic" id="nfmic" data-act="nfmic">${MIC}<span>用講的填</span></button><div class="nfheard" id="nfheard">點一下開始講，邊講邊填進下面的欄位。可以一次念完，例：「老饕廚房番茄雞胸肉，每份 180 克，熱量 250，蛋白質 30，碳水 12，脂肪 8，鈉 450」；也可以只講名稱、或只講其中幾項，沒講到的不會動。</div><textarea id="nftx" class="tx grow nftx" rows="1" style="display:none" placeholder="聽到的字會出現在這裡，可以直接改"></textarea>` : ''}
@@ -576,7 +595,7 @@
         ${NX.map(([k, n, u]) => `<div class="field"><label>${n}</label><input id="nf-${k}" type="number" inputmode="decimal" placeholder="不知道" value="${edit && edit[k] != null ? (k === 'na' ? naR(edit[k] * (NFB ? 100 : u0g(edit)) / 100) : Math.round(edit[k] * (NFB ? 100 : u0g(edit))) / 100) : ''}"><span class="u">${u}</span></div>`).join('')}
         <p class="note" style="margin-top:8px">跟上面同一欄（每一份量或每 100 克）填；沒寫的空著就好（空著＝不知道，不會當成 0）。</p></details>
       <p class="note">熱量沒填的話，會用三大營養素自動算（蛋白質、碳水每克 4 大卡，脂肪每克 9 大卡）。</p>
-      ${o.net ? '<button class="btn" data-act="nfsave">對好了，加入紀錄</button>' : edit ? `<div class="btnrow">${mine ? `<button class="btn danger" style="flex:.6" data-act="cfdel">${base ? '還原' : '刪除'}</button>` : ''}<button class="btn" data-act="nfsave">儲存</button></div>` : `<button class="btn" data-act="nfsave">${o.from === 'me' ? '儲存' : '儲存並加入紀錄'}</button>`}`, stopRec, '',
+      ${o.net ? '<button class="btn" data-act="nfsave">對好了，加入紀錄</button>' : edit ? `<div class="btnrow">${canDel ? `<button class="btn danger" style="flex:.6" data-act="cfdel">${mine && isBase(edit.id) ? '還原' : '刪除'}</button>` : ''}<button class="btn" data-act="nfsave">儲存</button></div>` : `<button class="btn" data-act="nfsave">${o.from === 'me' ? '儲存' : '儲存並加入紀錄'}</button>`}`, stopRec, '',
       o.back ? nfBack : o.from === 'me' ? null : inSrch ? backToSearch : null);
     NFNET = !!o.net; NFV = {};
     const oi = $('#nf-ocr'); if (oi) oi.onchange = () => { const f = oi.files && oi.files[0]; oi.value = ''; if (f) nfOcr(f); };
@@ -642,9 +661,15 @@
     if ((sat || 0) + (tr || 0) > f + 0.5 && f > 0) return '飽和＋反式脂肪不會比脂肪多，請對一下';
     return '';
   }
+  // 內建的（改過數字的）才是「還原」；大家新增的、自己新增的都是刪除
+  const isBase = id => !!(FOODS.find(x => x.id === id) || (EXTMAP.get(id) && !String(id).startsWith('s_')));
   function deleteCustom(id) {
-    const f = S.custom.find(o => o.id === id), base = f && (FOODS.find(x => x.id === id) || EXTMAP.get(id));
-    if (!f || !confirm(base ? '「' + f.name + '」還原成內建的數字？已經記過的紀錄不會變。' : '刪除「' + f.name + '」？已經記過的紀錄不會變。')) return;
+    const mine = S.custom.find(o => o.id === id), f = mine || (String(id).startsWith('s_') && EXTMAP.get(id)), base = mine && isBase(id);
+    if (!f) return;
+    // 共用庫裡同一筆（同條碼同名、或同名沒條碼）也一起刪，不然刪了還會從「大家新增」冒出來
+    const key = shKey(f), sh = !base && !f.unv && load('SG_SHARED', []).find(r => shKey(r) === key && r[1] === f.name);
+    if (!confirm(base ? '「' + f.name + '」還原成內建的數字？已經記過的紀錄不會變。' : '刪除「' + f.name + '」？' + (sh ? '共用食物庫裡這一筆也會刪掉，大家都不會再看到（輸入錯誤、重複的才刪）。' : '') + '已經記過的紀錄不會變。')) return;
+    if (sh) delShared(key);
     S.custom = S.custom.filter(o => o.id !== id); if (!base) S.recent = S.recent.filter(x => x !== id);
     save('SG_CUSTOM', S.custom); save('SG_RECENT', S.recent); rebuildFoods(); NFED = null;
     toast((base ? '已還原「' : '已刪除「') + f.name + '」'); const from = NFO.from; NFO = {};
@@ -845,6 +870,7 @@
       r.onend = () => {
         if (rec === r) rec = null; if (st.done) return;
         const t = text(); st.acc = t; st.cur = '';
+        if (document.hidden || st.wait) { st.fatal = null; st.quick = 0; st.wait = true; return; } // 切去別的畫面（看包裝、看官網）：先停著，回來接著聽
         if (st.fatal) { if (st.n > 1 || t) return st.finish(); end(); return o.onErr(st.fatal); } // 第一次就被擋＝真的沒權限；後面才被擋就把聽到的送出
         st.quick = Date.now() - t1 < 500 ? st.quick + 1 : 0; // 一直秒停（辨識服務出問題）就別再試
         if (st.quick >= 4) { if (t) return st.finish(); end(); return o.onErr(st.err || 'network'); }
@@ -852,9 +878,24 @@
       };
       try { r.start(); } catch (e) { setTimeout(one, 300); }
     };
-    st.timer = setInterval(() => { const now = Date.now(); if ((st.any ? now - st.last > (o.sil || SIL) : now - st.t0 > 12000) || now - st.t0 > 120000) st.finish(); }, 250);
+    // 切出去的時間不算：不會因為去看包裝超過 7 秒就被當成講完（手機把網頁凍住時計時器也停，回來時把那段時間補掉）
+    st.tick = Date.now();
+    st.timer = setInterval(() => {
+      const now = Date.now(), gap = now - st.tick; st.tick = now;
+      if (document.hidden || gap > 1500) { const d = document.hidden ? gap : gap - 250; st.last += d; st.t0 += d; return; }
+      if ((st.any ? now - st.last > (o.sil || SIL) : now - st.t0 > 12000) || now - st.t0 > 120000) st.finish();
+    }, 250);
+    st.resume = () => { if (st.done || !st.wait) return; st.wait = false; st.last = Date.now(); if (o.onResume) o.onResume(); one(); };
     o.onStart(); one();
   }
+  // 回到 App：剛剛在聽的接著聽（聽到的字都留著）
+  // 有些手機回來時舊的辨識已經被系統停掉卻沒通知：一律把舊的收掉、重新開一個
+  document.addEventListener('visibilitychange', () => {
+    const l = LS; if (!l || l.done) return;
+    if (document.hidden) { l.wait = true; return; }
+    if (rec) { const r = rec; rec = null; r.onend = null; r.onresult = null; try { r.abort(); } catch (e) { } l.acc = (l.acc && l.cur ? l.acc + '，' + l.cur : l.acc + l.cur).trim(); l.cur = ''; }
+    l.wait = true; setTimeout(l.resume, 300);
+  });
   const micErr = e => e === 'not-allowed' || e === 'service-not-allowed' ? '麥克風沒有開放權限，請到瀏覽器設定允許' : '語音辨識暫時不能用（' + e + '）';
   function startRec() {
     const o = $('#orb'), h = () => $('#heard');
@@ -927,7 +968,7 @@
     const off = () => { if (b) b.classList.remove('live'); if (lab) lab.textContent = '用講的填'; };
     NFV = {}; // 新的一次：上一次填好的都算原本的值，這次沒講到的不動
     listen({
-      onStart: () => { if (b) b.classList.add('live'); if (lab) lab.textContent = '講完了，點這裡結束'; if (box) box.innerHTML = '<b>正在聽…</b>照包裝念名稱、每份幾克、熱量、蛋白質、碳水、脂肪（有的話再念糖、鈉），會邊講邊填進下面'; if (tx) { tx.value = ''; tx.style.display = 'none'; } },
+      onStart: () => { if (b) b.classList.add('live'); if (lab) lab.textContent = '講完了，點這裡結束'; if (box) box.innerHTML = '<b>正在聽…</b>照包裝念名稱、每份幾克、熱量、蛋白質、碳水、脂肪（有的話再念糖、鈉），會邊講邊填進下面。要看包裝或別的畫面可以先切過去，回來會接著聽'; if (tx) { tx.value = ''; tx.style.display = 'none'; } },
       onText: t => { if (!$('#nfmic')) return; if (tx) { tx.style.display = ''; tx.value = nfFix(t); tx.dispatchEvent(new Event('input', { bubbles: true })); } else nfFill(t, true); },
       onDone: t => { off(); if (!$('#nfmic')) return; if (t) { if (tx) { tx.style.display = ''; tx.value = nfFix(t); } nfFill(t); } else if (box) box.textContent = '沒聽到聲音，再點一下試試'; },
       onErr: e => { off(); if (box) box.textContent = micErr(e); },
@@ -1053,7 +1094,7 @@
     view.innerHTML = `<div><h1 class="page">我的</h1><p class="sub">改了會馬上重新計算每日目標</p>${formHTML(S.profile)}
       <div class="card"><h3>我的食譜<em>${S.recipes.length ? S.recipes.length + ' 道' : ''}</em></h3>${S.recipes.length ? S.recipes.map(r => `<button class="entry" data-act="redit" data-rid="${esc(r.id)}"><span class="n"><b>${esc(r.name)}</b><small>${esc(recipeDesc(r))}</small></span><span class="k">${recipeKcal(r)}<small>kcal／份</small></span></button>`).join('') : '<p class="note" style="margin-top:-4px">常煮的菜存成食譜，以後說菜名就會照食材分開記。</p>'}
         <button class="btn ghost" style="margin-top:${S.recipes.length ? 10 : 0}px" data-act="rnew">＋ 新增食譜</button></div>
-      <div class="card"><h3>我的自訂食物<em>${S.custom.length ? S.custom.length + ' 樣' : ''}</em></h3>${S.custom.length ? S.custom.map(f => { const u = f.units[0], base = FOODS.some(x => x.id === f.id) || EXTMAP.has(f.id); return `<button class="entry" data-act="cfedit" data-from="me" data-fid="${esc(f.id)}"><span class="n"><b>${esc(f.name)}${base ? '<span class="badge">改過內建</span>' : ''}</b><small>1 ${esc(u.n)}${gpart(f)}${f.barcode ? ' · 條碼 ' + esc(f.barcode) : ''}</small></span><span class="k">${r0(f.kcal * u.g / 100)}<small>kcal</small></span></button>`; }).join('') : '<p class="note" style="margin-top:-4px">包裝食品、常吃的店家餐點可以自己填營養標示；內建的食物數字不對，記錄時點「修改這個食物的營養資料」就能改。</p>'}
+      <div class="card"><h3>我的自訂食物<em>${S.custom.length ? S.custom.length + ' 樣' : ''}</em></h3>${S.custom.length ? S.custom.map(f => { const u = f.units[0], base = isBase(f.id); return `<button class="entry" data-act="cfedit" data-from="me" data-fid="${esc(f.id)}"><span class="n"><b>${esc(f.name)}${base ? '<span class="badge">改過內建</span>' : ''}</b><small>1 ${esc(u.n)}${gpart(f)}${f.barcode ? ' · 條碼 ' + esc(f.barcode) : ''}</small></span><span class="k">${r0(f.kcal * u.g / 100)}<small>kcal</small></span></button>`; }).join('') : '<p class="note" style="margin-top:-4px">包裝食品、常吃的店家餐點可以自己填營養標示；內建的食物數字不對，記錄時點「修改這個食物的營養資料」就能改。</p>'}
         <button class="btn ghost" style="margin-top:${S.custom.length ? 10 : 0}px" data-act="cfnew">＋ 新增自訂食物</button></div>
       <div class="card"><h3>資料</h3><p class="note" style="margin-top:-4px">紀錄只存在這支手機的瀏覽器裡，換手機或清除瀏覽資料前記得先備份。</p>
         <div class="btnrow"><button class="btn ghost" data-act="export">匯出備份</button><button class="btn ghost" data-act="import">匯入備份</button></div><input type="file" id="imp" accept="application/json,.json" hidden></div>

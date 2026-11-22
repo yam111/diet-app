@@ -1,7 +1,7 @@
 rules_version = '2';
 // 食光 共用食物庫（Firebase 專案 shiguang-d673f，Firestore 規則；在 Firebase 控制台 → Firestore → 規則 貼上後發布）
 // 每筆一個文件：foods/b<條碼> 或 foods/n<品名短碼>，內容 { r: [條碼, 品名, 每份克, 液體, 每100熱量, 蛋白質, 碳水, 脂肪, 糖, 鈉, 飽和, 反式, 纖維], t: 時間 }
-// 誰都能讀；寫入要數字在範圍內（熱量跟三大營養素不用對得起來：喉糖糖醇、纖維會不一樣）（跟 Apps Script 版 clean_ 同一套檢查）；不能刪（有人亂填就在控制台刪那筆）
+// 誰都能讀；寫入要數字在範圍內（熱量跟三大營養素不用對得起來：喉糖糖醇、纖維會不一樣）（跟 Apps Script 版 clean_ 同一套檢查）；不能真的刪；App 裡刪除（輸入錯誤、重複）是寫 d: true 標成已刪除，大家的 App 就不顯示（有人亂填也可以在控制台刪那筆）
 service cloud.firestore {
   match /databases/{database}/documents {
     function num(v, lo, hi) { return v is number && v >= lo && v <= hi; }
@@ -18,7 +18,8 @@ service cloud.firestore {
     }
     match /foods/{id} {
       allow read: if true;
-      allow create, update: if request.resource.data.keys().hasOnly(['r', 't'])
+      allow create, update: if request.resource.data.keys().hasOnly(['r', 't', 'd'])
+        && (!('d' in request.resource.data) || request.resource.data.d == true)
         && request.resource.data.t == request.time
         && okRow(id, request.resource.data.r);
       allow delete: if false;
