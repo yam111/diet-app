@@ -47,7 +47,8 @@
   const NXK = NX.map(x => x[0]);
   const nxOf = a => { const o = {}; if (Array.isArray(a)) NXK.forEach((k, i) => { const v = a[i]; if (v != null && v !== '' && isFinite(+v)) o[k] = +v; }); return o; };
   const pickNx = f => { const o = {}; for (const k of NXK) if (f && f[k] != null) o[k] = f[k]; return o; };
-  const nxR = (k, v) => k === 'na' ? Math.round(v) : k === 'tr' ? Math.round(v * 100) / 100 : Math.round(v * 10) / 10;
+  const naR = v => v < 10 ? Math.round(v * 10) / 10 : Math.round(v); // 鈉：10 毫克以下留一位小數（8.5 不要變 9）
+  const nxR = (k, v) => k === 'na' ? naR(v) : k === 'tr' ? Math.round(v * 100) / 100 : Math.round(v * 10) / 10;
   let ALL = [];
   let RFOODS = [];
   function rebuildFoods() { const ov = new Set(S.custom.map(o => o.id)); ALL = S.custom.concat(FOODS.filter(f => !ov.has(f.id))); RFOODS = S.recipes.map(recipeFood).filter(Boolean); ALL = RFOODS.concat(ALL); const nm = new Set(ALL.map(f => f.name)), bc = new Set(S.custom.map(o => o.barcode).filter(Boolean)); ALL = ALL.concat(SHARED.filter(f => !nm.has(f.name) && !(f.barcode && bc.has(f.barcode)))); NL.setFoods(ALL); }
@@ -149,7 +150,7 @@
   // 回傳：只有條碼、品名、每份克數、每 100 克營養數字；沒網路就排著，下次打開再送
   // 有條碼的、自己新增的（不是改內建的、不跟內建同名）才分享
   // 沒條碼的：自己新增的、或修改大家新增的（s_n 開頭）才分享；跟內建同名的不分享
-  const shareNo = f => !f || f.recipe ? '-' : f.barcode ? '' : !/^(c_|s_n)/.test(f.id) ? '-' : FOODS.some(x => x.name === f.name) ? '跟內建食物同名（改個名字就會分享）' : '';
+  const shareNo = f => !f || f.recipe || f.unv ? '-' : f.barcode ? '' : !/^(c_|s_n)/.test(f.id) ? '-' : FOODS.some(x => x.name === f.name) ? '跟內建食物同名（改個名字就會分享）' : '';
   // 回傳沒分享的原因（空字串＝有送出；'-'＝本來就不分享，不用講）
   function shareFood(food) {
     const no = shareNo(food); if (no) return no; const u = food.units[0];
@@ -572,7 +573,7 @@
       <div class="field"><label>碳水化合物</label><input id="nf-c" type="number" inputmode="decimal" placeholder="0" value="${per(edit && edit.c)}"><span class="u">克</span></div>
       <div class="field"><label>脂肪</label><input id="nf-f" type="number" inputmode="decimal" placeholder="0" value="${per(edit && edit.f)}"><span class="u">克</span></div>
       <details class="nfmore" id="nfmore" ${edit && NXK.some(k => edit[k] != null) ? 'open' : ''}><summary>更多營養素（糖、鈉、飽和／反式脂肪、纖維）</summary>
-        ${NX.map(([k, n, u]) => `<div class="field"><label>${n}</label><input id="nf-${k}" type="number" inputmode="decimal" placeholder="不知道" value="${edit && edit[k] != null ? (k === 'na' ? r0(edit[k] * (NFB ? 100 : u0g(edit)) / 100) : Math.round(edit[k] * (NFB ? 100 : u0g(edit))) / 100) : ''}"><span class="u">${u}</span></div>`).join('')}
+        ${NX.map(([k, n, u]) => `<div class="field"><label>${n}</label><input id="nf-${k}" type="number" inputmode="decimal" placeholder="不知道" value="${edit && edit[k] != null ? (k === 'na' ? naR(edit[k] * (NFB ? 100 : u0g(edit)) / 100) : Math.round(edit[k] * (NFB ? 100 : u0g(edit))) / 100) : ''}"><span class="u">${u}</span></div>`).join('')}
         <p class="note" style="margin-top:8px">跟上面同一欄（每一份量或每 100 克）填；沒寫的空著就好（空著＝不知道，不會當成 0）。</p></details>
       <p class="note">熱量沒填的話，會用三大營養素自動算（蛋白質、碳水每克 4 大卡，脂肪每克 9 大卡）。</p>
       ${o.net ? '<button class="btn" data-act="nfsave">對好了，加入紀錄</button>' : edit ? `<div class="btnrow">${mine ? `<button class="btn danger" style="flex:.6" data-act="cfdel">${base ? '還原' : '刪除'}</button>` : ''}<button class="btn" data-act="nfsave">儲存</button></div>` : `<button class="btn" data-act="nfsave">${o.from === 'me' ? '儲存' : '儲存並加入紀錄'}</button>`}`, stopRec, '',
@@ -595,7 +596,7 @@
       if (r.g > 0) $('#nf-g').value = r.g;
       if (r.basis !== NFB) { NFB = r.basis; document.querySelectorAll('#nf-b button').forEach(x => x.classList.toggle('on', +x.dataset.v === NFB)); $('#nf-bn').textContent = nfBNote(); $('#nf-kl').textContent = NFB ? '每 100 ' + (NFLIQ ? '毫升' : '克') + '熱量' : '每份熱量'; }
       const got = [], miss = [];
-      for (const k of Object.keys(NM)) { const i = $('#nf-' + k); if (!i) continue; if (v[k] != null) { i.value = k === 'na' ? r0(v[k]) : r1(v[k]); got.push(NM[k]); i.classList.add('ocrhit'); } else if (['k', 'p', 'c', 'f'].includes(k)) miss.push(NM[k]); }
+      for (const k of Object.keys(NM)) { const i = $('#nf-' + k); if (!i) continue; if (v[k] != null) { i.value = k === 'na' ? naR(v[k]) : r1(v[k]); got.push(NM[k]); i.classList.add('ocrhit'); } else if (['k', 'p', 'c', 'f'].includes(k)) miss.push(NM[k]); }
       if (NXK.some(k => v[k] != null)) { const d = $('#nfmore'); if (d) d.open = true; }
       say(`讀到 ${got.join('、')}${r.g > 0 ? '、每份 ' + r.g + (r.liq ? ' 毫升' : ' 克') : '（每份重量沒讀到，請自己填）'}。${miss.length ? miss.join('、') + '沒讀到，請自己補。' : ''}辨識可能看錯字，請跟包裝對一下再存。`);
     } catch (e) { say('沒辦法辨識（第一次要連網下載辨識檔），可以直接手打。'); }
@@ -603,7 +604,7 @@
   // 切換「每一份量／每 100 克」：已經填的數字照每份重量換算過去（不會白填）
   function nfSetB(b) {
     if (b === NFB) return; const g = parseFloat($('#nf-g').value) || 0;
-    if (g > 0) for (const k of ['k', 'p', 'c', 'f', ...NXK]) { const i = $('#nf-' + k); if (!i || i.value.trim() === '') continue; const v = parseFloat(i.value); if (!isFinite(v)) continue; const nv = b ? v * 100 / g : v * g / 100; i.value = k === 'na' ? r0(nv) : r1(nv); }
+    if (g > 0) for (const k of ['k', 'p', 'c', 'f', ...NXK]) { const i = $('#nf-' + k); if (!i || i.value.trim() === '') continue; const v = parseFloat(i.value); if (!isFinite(v)) continue; const nv = b ? v * 100 / g : v * g / 100; i.value = k === 'na' ? naR(nv) : r1(nv); }
     NFB = b; document.querySelectorAll('#nf-b button').forEach(x => x.classList.toggle('on', +x.dataset.v === b));
     $('#nf-bn').textContent = nfBNote(); $('#nf-kl').textContent = b ? '每 100 ' + (NFLIQ ? '毫升' : '克') + '熱量' : '每份熱量';
   }
@@ -714,7 +715,7 @@
         let name = (p.product_name_zh || p.product_name || '').trim() || '條碼 ' + code; const br = (p.brands || '').split(',')[0].trim();
         if (br && !name.toLowerCase().includes(br.toLowerCase())) name = br + ' ' + name;
         const sq = parseFloat(p.serving_quantity);
-        const food = { id: 'c_' + uid(), name, alias: [], kcal: r1(k), p: r1(+n.proteins_100g || 0), c: r1(+n.carbohydrates_100g || 0), f: r1(+n.fat_100g || 0), ...offNx(n), units: [{ n: '份', g: sq > 0 && sq < 2000 ? r1(sq) : 100 }], cat: '條碼', barcode: code, liq: /\d\s*(ml|cl|l|毫升|公升|cc)\b/i.test((p.serving_size || '') + ' ' + (p.quantity || '')) || NL.isLiquid({ name }) ? 1 : 0 };
+        const food = { id: 'c_' + uid(), name, alias: [], kcal: r1(k), p: r1(+n.proteins_100g || 0), c: r1(+n.carbohydrates_100g || 0), f: r1(+n.fat_100g || 0), ...offNx(n), units: [{ n: '份', g: sq > 0 && sq < 2000 ? r1(sq) : 100 }], cat: '條碼', barcode: code, unv: 1, liq: /\d\s*(ml|cl|l|毫升|公升|cc)\b/i.test((p.serving_size || '') + ' ' + (p.quantity || '')) || NL.isLiquid({ name }) ? 1 : 0 };
         S.custom = S.custom.filter(o => o.barcode !== code); S.custom.unshift(food); save('SG_CUSTOM', S.custom); rebuildFoods();
         // 網路資料是大家上傳的，常是舊包裝、打錯或沒寫每份多重：先讓他照包裝對一次，存下來之後掃這個條碼就用對過的數字
         return openNewFood('', '', food, { net: !(sq > 0 && sq < 2000) ? 'nosv' : 'sv' });
