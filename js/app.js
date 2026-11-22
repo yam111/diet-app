@@ -580,7 +580,7 @@
     const mine = edit && S.custom.some(x => x.id === edit.id), base = edit && (FOODS.find(x => x.id === edit.id) || EXTMAP.get(edit.id)), canDel = mine || (edit && String(edit.id).startsWith('s_'));
     sheet(`${(barcode && !edit) || o.net ? '<button class="backbtn" data-act="scan">‹ 重新掃描</button>' : o.back ? '<button class="backbtn" data-act="nfback">‹ 返回</button>' : ''}<h2>${o.net ? '對一下包裝' : edit ? '修改食物資料' : '新增自訂食物'}</h2><div class="sub">${o.net ? `網路上找到這個條碼（Open Food Facts，大家上傳的資料，可能是舊包裝或打錯）。請跟包裝背面的「營養標示」對一下，不一樣就照包裝改。${o.net === 'nosv' ? '網路資料沒寫每份多重，請照包裝「每一份量」填上面的每份重量。' : ''}存好之後，掃這個條碼都用你對過的數字。` : edit ? (String(edit.id).startsWith('s_') && !mine ? '這是其他人掃這個條碼時照包裝填的數字。跟包裝對一下，不一樣就照包裝改。' : base && !mine ? '這是內建的數字（參考衛福部資料或一般做法估算）。照包裝或你吃的那家改，之後記的、說話記的都用你的數字；隨時可以還原。' : '照包裝上的「每一份量」營養標示改。') + '已經記過的紀錄不會變，要套新數字就點那一筆再按儲存。' : barcode ? `條碼 ${esc(barcode)} 還沒有資料。照包裝背面的營養標示填一次，下次掃這個條碼就直接帶出來。` : '照包裝上的「每一份量」營養標示填就可以'}${barcode || o.net || (edit && edit.barcode) ? '<p class="note" style="margin-top:6px">有條碼的食物存好後會分享到共用食物庫，其他人掃同一個條碼就查得到（只分享條碼、品名和營養數字）。</p>' : ''}</div>
       <label class="nfmic nfocr"><input type="file" id="nf-ocr" accept="image/*" hidden>${CAMI}<span>拍營養標示，自動填數字</span></label><p class="note" id="nf-ocrm" style="display:none;margin:4px 0 8px"></p>
-      ${SR ? `<button class="nfmic" id="nfmic" data-act="nfmic">${MIC}<span>用講的填</span></button><div class="nfheard" id="nfheard">點一下開始講，邊講邊填進下面的欄位。可以一次念完，例：「老饕廚房番茄雞胸肉，每份 180 克，熱量 250，蛋白質 30，碳水 12，脂肪 8，鈉 450」；也可以只講名稱、或只講其中幾項，沒講到的不會動。</div><textarea id="nftx" class="tx grow nftx" rows="1" style="display:none" placeholder="聽到的字會出現在這裡，可以直接改"></textarea>` : ''}
+      ${SR || IOSAPP ? `<button class="nfmic" id="nfmic" data-act="nfmic">${MIC}<span>用講的填</span></button><div class="nfheard" id="nfheard">點一下開始講，邊講邊填進下面的欄位。可以一次念完，例：「老饕廚房番茄雞胸肉，每份 180 克，熱量 250，蛋白質 30，碳水 12，脂肪 8，鈉 450」；也可以只講名稱、或只講其中幾項，沒講到的不會動。</div><textarea id="nftx" class="tx grow nftx" rows="1" style="display:none" placeholder="聽到的字會出現在這裡，可以直接改"></textarea>` : ''}
       <div class="field"><label>名稱</label><textarea id="nf-n" class="tx grow" rows="1" placeholder="例如：公司樓下雞肉飯">${esc(edit ? edit.name : name)}</textarea></div>
       <div class="seg sm" id="nf-liq" style="margin:4px 0 2px"><button data-act="nfliq" data-v="0" class="${NFLIQ || NFNOG ? '' : 'on'}">吃的（克）</button><button data-act="nfliq" data-v="1" class="${NFLIQ ? 'on' : ''}">喝的（毫升）</button><button data-act="nfliq" data-v="2" class="${NFNOG ? 'on' : ''}">不知道重量</button></div>
       <p class="note" id="nf-nogn" style="margin:2px 0 4px;${NFNOG ? '' : 'display:none'}">不用填重量，下面填「一份」的熱量跟營養素（不確定就抓大概）。記錄時用「幾份」記，例如半份填 0.5。</p>
@@ -838,16 +838,19 @@
   }
 
   // ---------- 語音 ----------
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  // iPhone／iPad 加到主畫面的 App：蘋果不開放網頁語音辨識（麥克風會亮，但永遠收不到字），改用鍵盤上的聽寫麥克風
+  const IOSAPP = (/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) && (navigator.standalone === true || matchMedia('(display-mode: standalone)').matches);
+  const SR = IOSAPP ? null : (window.SpeechRecognition || window.webkitSpeechRecognition);
+  const DICT = '點一下打字框，再按鍵盤上的麥克風（空白鍵旁或右下角）用講的，講的字會直接打進去';
   let rec = null, heard = '';
   const MIC = '<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.500 11a6.500 6.500 0 0 0 13 0M12 17.500V21"/></svg>';
   function openVoice() {
     heard = '';
     sheet(`<div class="voice"><h2>說說你吃了什麼</h2><div class="sub">例：「早餐吃了兩顆水煮蛋、一杯無糖豆漿，還有地瓜大概 150 克」</div>
       <button class="orb ${SR ? '' : 'off'}" id="orb" data-act="mic">${MIC}</button>
-      <div class="heard ph" id="heard">${SR ? '點一下麥克風開始說' : '這個瀏覽器不支援語音辨識，請用下面的打字（鍵盤上的麥克風也可以用講的）'}</div>
+      <div class="heard ph" id="heard">${SR ? '點一下麥克風開始說' : IOSAPP ? 'iPhone 主畫面的 App 不能直接聽，' + DICT + '，再按「記錄」' : '這個瀏覽器不支援語音辨識，請用下面的打字（鍵盤上的麥克風也可以用講的）'}</div>
       <div class="typebox"><textarea id="vtext" class="grow" rows="1" placeholder="或直接打字：雞胸肉150克 白飯一碗" enterkeyhint="done"></textarea><button data-act="vsend">記錄</button></div></div>`, stopRec);
-    if (SR) startRec();
+    if (SR) startRec(); else if (IOSAPP) { const v = $('#vtext'); if (v) v.focus(); }
   }
   // 一直聽（continuous），慢慢講、中間停頓都不會斷；瀏覽器自己停了（有些手機一段時間會停）就馬上接著聽。
   // 停下來約 7 秒沒再講，或點一下麥克風，才算講完。一開始沒講話等 12 秒；最長 2 分鐘。
@@ -973,6 +976,12 @@
       onDone: t => { off(); if (!$('#nfmic')) return; if (t) { if (tx) { tx.style.display = ''; tx.value = nfFix(t); } nfFill(t); } else if (box) box.textContent = '沒聽到聲音，再點一下試試'; },
       onErr: e => { off(); if (box) box.textContent = micErr(e); },
     });
+  }
+  // iPhone 主畫面 App：打開下面的字框，用鍵盤聽寫講，字打進去就邊打邊填（tx.oninput 會填欄位）
+  function nfDictate() {
+    const box = $('#nfheard'), tx = $('#nftx'); if (!tx) return;
+    NFV = {}; tx.style.display = ''; tx.placeholder = '按鍵盤上的麥克風，照包裝念'; tx.focus();
+    if (box) { box.classList.remove('ph'); box.innerHTML = '<b>' + DICT + '</b>，下面的欄位會跟著填。例：「老饕廚房番茄雞胸肉，每份 180 克，熱量 250，蛋白質 30，碳水 12，脂肪 8，鈉 450」'; }
   }
   // 搜尋框用講的：講一個食物名，停一下就自動搜尋（不用等 7 秒）
   function startSrRec() {
@@ -1217,7 +1226,7 @@
       case 'cfnew': openNewFood('', '', null, { from: 'me' }); break;
       case 'cfdel': if (NFED) deleteCustom(NFED.id); break;
       case 'srmic': if (!SR) break; if (LS) LS.finish(); else startSrRec(); break;
-      case 'nfmic': if (!SR) break; if (LS) LS.finish(); else startNfRec(); break;
+      case 'nfmic': if (IOSAPP) { nfDictate(); break; } if (!SR) break; if (LS) LS.finish(); else startNfRec(); break;
       case 'rnew': openRecipe(null); break;
       case 'redit': openRecipe(el.dataset.rid); break;
       case 'rfrom': { const d = S.batchDate || S.date; const items = (S.lastBatch || []).map(id => findEntry(id, d)).filter(Boolean).map(({ e }) => { const f = foodById(e.fid), x = 100 / e.grams;
