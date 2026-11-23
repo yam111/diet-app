@@ -24,5 +24,15 @@ service cloud.firestore {
         && okRow(id, request.resource.data.r);
       allow delete: if false;
     }
+    // 連結健身 App：link/<10 碼連結碼>，內容 { j: 每日總熱量／三大營養素、體重、目標的 JSON 字串, t: 時間 }。知道碼才讀得到（不能列出全部）
+    match /link/{code} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if code.matches('^[A-Z0-9]{10}$')
+        && request.resource.data.keys().hasOnly(['j', 't'])
+        && request.resource.data.j is string && request.resource.data.j.size() <= 20000
+        && request.resource.data.t == request.time;
+      allow delete: if true;
+    }
   }
 }

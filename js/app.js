@@ -6,7 +6,7 @@
   const r0 = n => Math.round(n);
   const r1 = n => Math.round(n * 10) / 10;
   const load = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } };
-  const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { setTimeout(() => toast('手機的瀏覽器儲存空間滿了，這次沒存到。請到「我的」匯出備份，再清一些瀏覽器資料'), 0); } };
+  const save = (k, v) => { if (k === 'SG_LOG' || k === 'SG_WEIGHT' || k === 'SG_PROFILE') setTimeout(() => queueLink(), 0); try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { setTimeout(() => toast('手機的瀏覽器儲存空間滿了，這次沒存到。請到「我的」匯出備份，再清一些瀏覽器資料'), 0); } };
   const dkey = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   const today = () => dkey(new Date());
   const addDays = (k, n) => { const d = new Date(k + 'T12:00:00'); d.setDate(d.getDate() + n); return dkey(d); };
@@ -120,12 +120,53 @@
   const FB = { apiKey: 'AIzaSyAMGh5oV0HeFQ5OmwcScW7ChrQgo8AxTjc', authDomain: 'shiguang-d673f.firebaseapp.com', projectId: 'shiguang-d673f', appId: '1:1078307885203:web:89db8b9f36a1c3050e7d66' };
   const FBJS = 'https://www.gstatic.com/firebasejs/12.18.0/';
   let FS = null;
+  // ---------- 連結健身 App：把每天的總熱量／三大營養素、體重、每日目標放到 Firebase 的 link/<連結碼>（不含吃了什麼），健身打卡 App 用同一組碼讀 ----------
+  // 只有自己打開連結的人才會上傳；連結碼 10 碼隨機，規則不開放列出，不知道碼就讀不到
+  let linkCode = load('SG_LINK', ''), linkT = 0, linkLast = '';
+  function linkPayload() {
+    const days = {}, w = {}, from = dkey(new Date(Date.now() - 40 * 864e5)), wf = dkey(new Date(Date.now() - 70 * 864e5));
+    for (const k of Object.keys(S.log)) if (k >= from) { const t = totals(k); if (t.n) days[k] = [r0(t.kcal), r0(t.p), r0(t.c), r0(t.f)]; }
+    for (const k of Object.keys(S.weight)) if (k >= wf) w[k] = S.weight[k];
+    const T = S.profile ? targets() : null;
+    return JSON.stringify({ v: 1, goal: S.profile ? S.profile.goal : '', tk: T ? T.kcal : 0, tp: T ? T.p : 0, days, w });
+  }
+  async function pushLink(force) {
+    if (!linkCode || !FS) return false;
+    const j = linkPayload(); if (!force && j === linkLast) return true;
+    try {
+      await Promise.race([FS.m.setDoc(FS.m.doc(FS.db, 'link', linkCode), { j, t: FS.m.serverTimestamp() }), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 10000))]);
+      linkLast = j; return true;
+    } catch (e) { return false; }
+  }
+  function queueLink() { if (!linkCode) return; clearTimeout(linkT); linkT = setTimeout(pushLink, 2500); }
+  async function linkOn() {
+    const ab = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', r = crypto.getRandomValues(new Uint8Array(10));
+    linkCode = Array.from(r, x => ab[x % 32]).join(''); save('SG_LINK', linkCode); linkLast = ''; render();
+    toast(await pushLink(true) ? '已開啟，連結碼在下面' : '已開啟。現在連不上網路，連上後會自動上傳');
+  }
+  function linkOff() {
+    if (!confirm('取消連結？雲端那份同步資料會刪掉，健身 App 就讀不到了。這支手機上的紀錄不會變。')) return;
+    const c = linkCode; linkCode = ''; linkLast = ''; clearTimeout(linkT); try { localStorage.removeItem('SG_LINK'); } catch (e) {}
+    if (FS) FS.m.deleteDoc(FS.m.doc(FS.db, 'link', c)).catch(() => {});
+    render(); toast('已取消連結');
+  }
+  function linkCopy() {
+    const done = () => toast('已複製連結碼');
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(linkCode).then(done, () => toast('複製不了，請長按連結碼自己複製'));
+    else toast('請長按連結碼自己複製');
+  }
+  const linkCardHTML = () => `<div class="card"><h3>連結健身打卡 App</h3>${linkCode
+    ? `<p class="note" style="margin-top:-4px">到健身打卡 App 的「設定 → 飲食 App 連結」貼上這組碼，教練就會把吃的、體重和訓練一起看。之後有網路會自動更新。</p>
+        <p style="font-size:26px;letter-spacing:4px;font-weight:700;text-align:center;margin:10px 0 14px;user-select:all;-webkit-user-select:all">${esc(linkCode)}</p>
+        <div class="btnrow"><button class="btn" data-act="linkcopy">複製連結碼</button><button class="btn ghost" data-act="linkoff">取消連結</button></div>`
+    : `<p class="note" style="margin-top:-4px">有在用健身打卡 App 的話，打開後它可以讀到你每天吃的總熱量、三大營養素、體重和每日目標（不含吃了什麼）。沒打開就什麼都不會上傳。</p>
+        <button class="btn ghost" data-act="linkon">開啟連結</button>`}</div>`;
   async function startLive() {
     try {
       const [{ initializeApp }, m] = await Promise.all([import(FBJS + 'firebase-app.js'), import(FBJS + 'firebase-firestore.js')]);
       const db = m.getFirestore(initializeApp(FB)); FS = { m, db };
       m.onSnapshot(m.collection(db, 'foods'), snap => { const ok = [], del = new Set(); for (const d of snap.docs) { const x = d.data(); if (!Array.isArray(x.r) || !x.r[1]) continue; if (x.d) del.add(shKey(x.r)); else ok.push(x.r); } fsItems = ok; fsDel = del; mergeShared(); }, () => { fsItems = null; });
-      flushShare();
+      flushShare(); pushLink();
     } catch (e) { FS = null; }
   }
   setTimeout(startLive, 300);
@@ -1096,6 +1137,7 @@
         <button class="btn ghost" style="margin-top:${S.recipes.length ? 10 : 0}px" data-act="rnew">＋ 新增食譜</button></div>
       <div class="card"><h3>我的自訂食物<em>${S.custom.length ? S.custom.length + ' 樣' : ''}</em></h3>${S.custom.length ? S.custom.map(f => { const u = f.units[0], base = isBase(f.id); return `<button class="entry" data-act="cfedit" data-from="me" data-fid="${esc(f.id)}"><span class="n"><b>${esc(f.name)}${base ? '<span class="badge">改過內建</span>' : ''}</b><small>1 ${esc(u.n)}${gpart(f)}${f.barcode ? ' · 條碼 ' + esc(f.barcode) : ''}</small></span><span class="k">${r0(f.kcal * u.g / 100)}<small>kcal</small></span></button>`; }).join('') : '<p class="note" style="margin-top:-4px">包裝食品、常吃的店家餐點可以自己填營養標示；內建的食物數字不對，記錄時點「修改這個食物的營養資料」就能改。</p>'}
         <button class="btn ghost" style="margin-top:${S.custom.length ? 10 : 0}px" data-act="cfnew">＋ 新增自訂食物</button></div>
+      ${linkCardHTML()}
       <div class="card"><h3>資料</h3><p class="note" style="margin-top:-4px">紀錄只存在這支手機的瀏覽器裡，換手機或清除瀏覽資料前記得先備份。</p>
         <div class="btnrow"><button class="btn ghost" data-act="export">匯出備份</button><button class="btn ghost" data-act="import">匯入備份</button></div><input type="file" id="imp" accept="application/json,.json" hidden></div>
       <p class="note">熱量與營養素為估算值（BMR 沒自己填時用 Mifflin-St Jeor 公式；食物數值參考衛福部食品營養成分資料庫與常見市售標示，料理類依一般做法估算），實際會因做法與份量不同。有疾病或特殊飲食需求請先詢問醫師或營養師。</p></div>`;
@@ -1246,6 +1288,9 @@
       case 'wsave': saveWeight($('#wt').value, WD); break;
       case 'wdel': delete S.weight[el.dataset.k]; save('SG_WEIGHT', S.weight); toast('已刪除那天的體重'); render(); break;
       case 'export': exportData(); break;
+      case 'linkon': linkOn(); break;
+      case 'linkoff': linkOff(); break;
+      case 'linkcopy': linkCopy(); break;
       case 'import': $('#imp').click(); break;
     }
   });
