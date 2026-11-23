@@ -34,5 +34,15 @@ service cloud.firestore {
         && request.resource.data.t == request.time;
       allow delete: if true;
     }
+    // 健身打卡 App 雲端備份：gymbackup/<12 碼備份碼>，內容 { j: 整份備份的 JSON 字串, t: 時間 }。知道碼才讀得到（不能列出全部），關閉備份時刪除
+    match /gymbackup/{code} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if code.matches('^[A-Z0-9]{12}$')
+        && request.resource.data.keys().hasOnly(['j', 't'])
+        && request.resource.data.j is string && request.resource.data.j.size() <= 900000
+        && request.resource.data.t == request.time;
+      allow delete: if true;
+    }
   }
 }
