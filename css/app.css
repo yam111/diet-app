@@ -418,3 +418,4 @@ textarea.grow{resize:none;overflow:hidden;line-height:1.4;font-family:var(--sans
 .typebox textarea{flex:1;background:var(--s1);border:1px solid var(--line2);border-radius:15px;padding:13px 14px;font-size:16px;min-width:0}
 .fixbox textarea{flex:1;background:var(--s1);border:1px solid var(--line2);border-radius:13px;padding:10px 12px;font-size:16px;min-width:0}
 .nfocr{cursor:pointer}.ocrhit{color:var(--gold2)!important}
+.field.nfsub label{padding-left:14px;font-size:13px;color:var(--dim)}

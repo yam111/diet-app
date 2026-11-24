@@ -620,7 +620,7 @@
     const u = edit && edit.units[0], per = v => edit ? r1(NFB ? v : v * u.g / 100) : '';
     const mine = edit && S.custom.some(x => x.id === edit.id), base = edit && (FOODS.find(x => x.id === edit.id) || EXTMAP.get(edit.id)), canDel = mine || (edit && String(edit.id).startsWith('s_'));
     sheet(`${(barcode && !edit) || o.net ? '<button class="backbtn" data-act="scan">‹ 重新掃描</button>' : o.back ? '<button class="backbtn" data-act="nfback">‹ 返回</button>' : ''}<h2>${o.net ? '對一下包裝' : edit ? '修改食物資料' : '新增自訂食物'}</h2><div class="sub">${o.net ? `網路上找到這個條碼（Open Food Facts，大家上傳的資料，可能是舊包裝或打錯）。請跟包裝背面的「營養標示」對一下，不一樣就照包裝改。${o.net === 'nosv' ? '網路資料沒寫每份多重，請照包裝「每一份量」填上面的每份重量。' : ''}存好之後，掃這個條碼都用你對過的數字。` : edit ? (String(edit.id).startsWith('s_') && !mine ? '這是其他人掃這個條碼時照包裝填的數字。跟包裝對一下，不一樣就照包裝改。' : base && !mine ? '這是內建的數字（參考衛福部資料或一般做法估算）。照包裝或你吃的那家改，之後記的、說話記的都用你的數字；隨時可以還原。' : '照包裝上的「每一份量」營養標示改。') + '已經記過的紀錄不會變，要套新數字就點那一筆再按儲存。' : barcode ? `條碼 ${esc(barcode)} 還沒有資料。照包裝背面的營養標示填一次，下次掃這個條碼就直接帶出來。` : '照包裝上的「每一份量」營養標示填就可以'}${barcode || o.net || (edit && edit.barcode) ? '<p class="note" style="margin-top:6px">有條碼的食物存好後會分享到共用食物庫，其他人掃同一個條碼就查得到（只分享條碼、品名和營養數字）。</p>' : ''}</div>
-      <label class="nfmic nfocr"><input type="file" id="nf-ocr" accept="image/*" hidden>${CAMI}<span>拍營養標示，自動填數字</span></label><p class="note" id="nf-ocrm" style="display:none;margin:4px 0 8px"></p>
+      <label class="nfmic nfocr"><input type="file" id="nf-ocr" accept="image/*" capture="environment" hidden>${CAMI}<span>拍營養標示，自動填數字</span></label><p class="note" id="nf-ocrm" style="display:none;margin:4px 0 8px"></p>
       ${SR ? `<button class="nfmic" id="nfmic" data-act="nfmic">${MIC}<span>用講的填</span></button><div class="nfheard" id="nfheard">點一下開始講，邊講邊填進下面的欄位。可以一次念完，例：「老饕廚房番茄雞胸肉，每份 180 克，熱量 250，蛋白質 30，碳水 12，脂肪 8，鈉 450」；也可以只講名稱、或只講其中幾項，沒講到的不會動。</div><textarea id="nftx" class="tx grow nftx" rows="1" style="display:none" placeholder="聽到的字會出現在這裡，可以直接改"></textarea>` : ''}
       <div class="field"><label>名稱</label><textarea id="nf-n" class="tx grow" rows="1" placeholder="例如：公司樓下雞肉飯">${esc(edit ? edit.name : name)}</textarea></div>
       <div class="seg sm" id="nf-liq" style="margin:4px 0 2px"><button data-act="nfliq" data-v="0" class="${NFLIQ || NFNOG ? '' : 'on'}">吃的（克）</button><button data-act="nfliq" data-v="1" class="${NFLIQ ? 'on' : ''}">喝的（毫升）</button><button data-act="nfliq" data-v="2" class="${NFNOG ? 'on' : ''}">不知道重量</button></div>
@@ -629,12 +629,8 @@
       <div class="seg sm" id="nf-b" style="margin:6px 0 2px;${NFNOG ? 'display:none' : ''}"><button data-act="nfb" data-v="0" class="${NFB ? '' : 'on'}">照「每一份量」填</button><button data-act="nfb" data-v="1" class="${NFB ? 'on' : ''}">照「每 100 <span id="nf-bu">${NFLIQ ? '毫升' : '克'}</span>」填</button></div>
       <p class="note" id="nf-bn" style="margin:2px 0 4px;${NFNOG ? 'display:none' : ''}">${nfBNote()}</p>
       <div class="field"><label id="nf-kl">${NFB ? '每 100 ' + (NFLIQ ? '毫升' : '克') + '熱量' : '每份熱量'}</label><input id="nf-k" type="number" inputmode="decimal" placeholder="0" value="${per(edit && edit.kcal)}"><span class="u">大卡</span></div>
-      <div class="field"><label>蛋白質</label><input id="nf-p" type="number" inputmode="decimal" placeholder="0" value="${per(edit && edit.p)}"><span class="u">克</span></div>
-      <div class="field"><label>碳水化合物</label><input id="nf-c" type="number" inputmode="decimal" placeholder="0" value="${per(edit && edit.c)}"><span class="u">克</span></div>
-      <div class="field"><label>脂肪</label><input id="nf-f" type="number" inputmode="decimal" placeholder="0" value="${per(edit && edit.f)}"><span class="u">克</span></div>
-      <details class="nfmore" id="nfmore" ${edit && NXK.some(k => edit[k] != null) ? 'open' : ''}><summary>更多營養素（糖、鈉、飽和／反式脂肪、纖維）</summary>
-        ${NX.map(([k, n, u]) => `<div class="field"><label>${n}</label><input id="nf-${k}" type="number" inputmode="decimal" placeholder="不知道" value="${edit && edit[k] != null ? (k === 'na' ? naR(edit[k] * (NFB ? 100 : u0g(edit)) / 100) : Math.round(edit[k] * (NFB ? 100 : u0g(edit))) / 100) : ''}"><span class="u">${u}</span></div>`).join('')}
-        <p class="note" style="margin-top:8px">跟上面同一欄（每一份量或每 100 克）填；沒寫的空著就好（空著＝不知道，不會當成 0）。</p></details>
+      ${[['p', '蛋白質', '克'], ['f', '脂肪', '克'], ['sat', '飽和脂肪', '克', 1], ['tr', '反式脂肪', '克', 1], ['c', '碳水化合物', '克'], ['sug', '糖', '克', 1], ['na', '鈉', '毫克'], ['fib', '膳食纖維', '克']].map(([k, n, u, sub]) => `<div class="field${sub ? ' nfsub' : ''}"><label>${n}</label><input id="nf-${k}" type="number" inputmode="decimal" placeholder="${NXK.includes(k) ? '不知道' : '0'}" value="${NXK.includes(k) ? (edit && edit[k] != null ? (k === 'na' ? naR(edit[k] * (NFB ? 100 : u0g(edit)) / 100) : Math.round(edit[k] * (NFB ? 100 : u0g(edit))) / 100) : '') : per(edit && edit[k])}"><span class="u">${u}</span></div>`).join('')}
+      <p class="note" style="margin-top:8px">順序跟包裝上的營養標示一樣，由上往下對著填。糖、鈉、飽和／反式脂肪、纖維沒寫的空著就好（空著＝不知道，不會當成 0）。</p>
       <p class="note">熱量沒填的話，會用三大營養素自動算（蛋白質、碳水每克 4 大卡，脂肪每克 9 大卡）。</p>
       ${o.net ? '<button class="btn" data-act="nfsave">對好了，加入紀錄</button>' : edit ? `<div class="btnrow">${canDel ? `<button class="btn danger" style="flex:.6" data-act="cfdel">${mine && isBase(edit.id) ? '還原' : '刪除'}</button>` : ''}<button class="btn" data-act="nfsave">儲存</button></div>` : `<button class="btn" data-act="nfsave">${o.from === 'me' ? '儲存' : '儲存並加入紀錄'}</button>`}`, stopRec, '',
       o.back ? nfBack : o.from === 'me' ? null : inSrch ? backToSearch : null);
@@ -731,35 +727,50 @@
   async function startScan() {
     const v = $('#scv'), msg = t => { const m = $('#scmsg'); if (m) m.textContent = t; }; let done = false;
     const hit = code => { if (done) return; done = true; if (navigator.vibrate) navigator.vibrate(60); stopScan(); lookupBarcode(code); };
-    const FMT = ['ean_13', 'ean_8', 'upc_a', 'upc_e'];
+    // 超商鮮食（7-11 飯糰、便當等）貼的是店內標籤，常用 Code 128／ITF 等長條碼，不是包裝上的 EAN-13：這些格式都要讀
+    const FMT = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'itf', 'code_39', 'codabar'];
+    const pick = rs => { const ean = rs.find(r => /^(ean|upc)/.test(r.format)); return (ean || rs[0]).rawValue; };
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw 0;
-      let native = false; try { native = 'BarcodeDetector' in window && (await BarcodeDetector.getSupportedFormats()).includes('ean_13'); } catch (e) { }
-      if (native) {
-        const st = await navigator.mediaDevices.getUserMedia({ video: CAM, audio: false }); camFocus(st);
-        if (!$('#scv')) return st.getTracks().forEach(t => t.stop());
-        let alive = true; scanStop = () => { alive = false; st.getTracks().forEach(t => t.stop()); };
-        v.srcObject = st; await v.play(); msg('對準條碼…');
-        const bd = new BarcodeDetector({ formats: FMT });
-        const loop = async () => { if (!alive) return; try { const r = await bd.detect(v); if (r[0]) return hit(r[0].rawValue); } catch (e) { } setTimeout(loop, 60); }; loop();
+      let fmts = []; try { if ('BarcodeDetector' in window) { const sup = await BarcodeDetector.getSupportedFormats(); fmts = FMT.filter(f => sup.includes(f)); } } catch (e) { }
+      const st = await navigator.mediaDevices.getUserMedia({ video: CAM, audio: false }); camFocus(st);
+      if (!$('#scv')) return st.getTracks().forEach(t => t.stop());
+      let alive = true; scanStop = () => { alive = false; st.getTracks().forEach(t => t.stop()); };
+      v.srcObject = st; await v.play(); msg('對準條碼…（可以靠近一點，讓條碼佔滿框框）');
+      if (fmts.includes('ean_13')) {
+        const bd = new BarcodeDetector({ formats: fmts });
+        const loop = async () => { if (!alive) return; try { const r = await bd.detect(v); if (r[0]) return hit(pick(r)); } catch (e) { } setTimeout(loop, 60); }; loop();
       } else {
-        await loadScript('js/vendor/zxing.min.js'); if (!$('#scv')) return;
-        const hints = new Map(); hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8, ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E]);
-        const rd = new ZXing.BrowserMultiFormatReader(hints, 60); scanStop = () => rd.reset();
-        await rd.decodeFromConstraints({ video: CAM, audio: false }, v, res => { if (res) hit(res.getText()); }); if (v.srcObject) camFocus(v.srcObject);
-        if ($('#scv')) msg('對準條碼…');
+        // iPhone 沒有內建條碼辨識：用 ZXing，但只拿畫面中間那條（原始解析度、不縮小）來讀，小條碼、彎曲包裝也讀得到
+        await loadScript('js/vendor/zxing.min.js'); if (!alive) return;
+        const Z = ZXing, B = Z.BarcodeFormat, hints = new Map();
+        hints.set(Z.DecodeHintType.POSSIBLE_FORMATS, [B.EAN_13, B.EAN_8, B.UPC_A, B.UPC_E, B.CODE_128, B.ITF, B.CODE_39, B.CODABAR]);
+        hints.set(Z.DecodeHintType.TRY_HARDER, true);
+        const rd = new Z.MultiFormatReader(); rd.setHints(hints);
+        const cv = document.createElement('canvas'), cx = cv.getContext('2d', { willReadFrequently: true }); let n = 0;
+        const loop = () => {
+          if (!alive) return; const W = v.videoWidth, H = v.videoHeight;
+          if (W && H) {
+            // 輪流讀：中間橫條（框框附近）→ 整個畫面（條碼不在框裡也有機會）
+            const full = n++ % 3 === 2, sw = full ? W : Math.round(W * .9), sh = full ? H : Math.round(H * .5);
+            const sc = Math.min(1, 1600 / sw); cv.width = Math.round(sw * sc); cv.height = Math.round(sh * sc);
+            cx.drawImage(v, (W - sw) / 2, (H - sh) / 2, sw, sh, 0, 0, cv.width, cv.height);
+            try { const r = rd.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(cv)))); if (r) return hit(r.getText()); } catch (e) { }
+          }
+          setTimeout(loop, 40);
+        }; loop();
       }
     } catch (e) { stopScan(); msg('沒辦法開相機（要允許「相機」權限），也可以直接輸入條碼數字。'); }
   }
-  // 後鏡頭用 720p（預設 480p 條碼的線太細、要對很久才讀得到）＋連續對焦
-  const CAM = { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } };
+  // 後鏡頭用 1080p（預設 480p 條碼的線太細、要對很久才讀得到）＋連續對焦
+  const CAM = { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } };
   function camFocus(st) { try { const t = st.getVideoTracks()[0], c = t.getCapabilities ? t.getCapabilities() : {}; if ((c.focusMode || []).includes('continuous')) t.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => { }); } catch (e) { } }
   function stopScan() { if (scanStop) { const f = scanStop; scanStop = null; try { f(); } catch (e) { } } }
   // Open Food Facts 的糖、鈉（克→毫克）、飽和／反式脂肪、纖維；沒寫的就不知道
   function offNx(n) { const o = {}, m = { sug: 'sugars_100g', na: 'sodium_100g', sat: 'saturated-fat_100g', tr: 'trans-fat_100g', fib: 'fiber_100g' };
     for (const [k, key] of Object.entries(m)) { const v = parseFloat(n[key]); if (isFinite(v) && v >= 0) o[k] = nxR(k, k === 'na' ? v * 1000 : v); } return o; }
   async function lookupBarcode(code) {
-    code = String(code || '').replace(/\D/g, ''); if (code.length < 8) return toast('條碼是 8～13 位數字');
+    code = String(code || '').replace(/\D/g, ''); if (code.length < 8) return toast('條碼至少 8 位數字');
     const mine = S.custom.find(f => f.barcode === code); if (mine) return openQty(mine, { fromSearch: inSrch });
     const m = $('#scmsg'); if (m) m.textContent = '查詢條碼 ' + code + '…';
     // 共用條碼庫：手機裡已經有 Firebase 即時同步的那份，找到就直接開（不用等網路）
