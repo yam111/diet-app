@@ -207,7 +207,7 @@
     }
     return 0;
   }
-  function searchIn(q, foods, limit) {
+  function searchIn(q, foods, limit, min = 0) {
     const qs = [...q];
     const rest = q.replace(COOK, '').replace(/^的|的$/g, ''), rs = [...rest], useRest = rest && rest !== q;
     const out = [];
@@ -215,7 +215,7 @@
       let best = scoreOne(q, qs, f);
       if (!best && useRest) { const r = scoreOne(rest, rs, f); if (r) best = Math.max(31, Math.min(70, r - 25)); } // 拿掉做法才對到的，排在完整對到的後面
       if (!best) best = partial(q, qs, f);
-      if (best) out.push({ f, s: best });
+      if (best && best >= min) out.push({ f, s: best });
     }
     out.sort((a, b) => b.s - a.s || a.f.name.length - b.f.name.length);
     return out.slice(0, limit).map(o => o.f);
@@ -580,7 +580,8 @@
   function fmt(n) { return (Math.round(n * 100) / 100).toString(); }
 
   // 另一份清單（例如衛福部完整資料庫）用同樣的規則搜尋
-  function searchList(q, list, limit = 40) { q = (q || '').trim().toLowerCase().replace(/\s+/g, ''); if (!q) return []; const q2 = fixSound(q); if (q2 === q) return searchIn(q, list, limit); const a = searchIn(q2, list, limit); return [...a, ...searchIn(q, list, limit).filter(f => !a.includes(f))].slice(0, limit); }
+  // min：只要分數夠高的（「常吃」區塊只放真的對到的，不放只對到一兩個字的）
+  function searchList(q, list, limit = 40, min = 0) { q = (q || '').trim().toLowerCase().replace(/\s+/g, ''); if (!q) return []; const q2 = fixSound(q); if (q2 === q) return searchIn(q, list, limit, min); const a = searchIn(q2, list, limit, min); return [...a, ...searchIn(q, list, limit, min).filter(f => !a.includes(f))].slice(0, limit); }
   // 超商・連鎖店清單：開頭講品牌（「全家雞胸」）就只在那家裡找
   let bCache = null, bWords = [];
   function searchBrand(q, list, limit = 40) {

@@ -384,6 +384,15 @@
     saveLog(); return { pm, added };
   }
   // 這樣食物最近一次記的份量（不管哪天哪餐）
+  // 每樣食物記過幾次、最後一次哪天（搜尋時把常吃的排前面）
+  function eatCounts() {
+    const m = new Map();
+    for (const [d, day] of Object.entries(S.log)) for (const ml of Object.values(day || {})) if (Array.isArray(ml)) for (const e of ml) {
+      if (!e || e.fid == null) continue; const id = String(e.fid).split('@')[0], o = m.get(id);
+      if (o) { o.n++; if (d > o.d) o.d = d; } else m.set(id, { n: 1, d });
+    }
+    return m;
+  }
   function lastEntry(rid) {
     for (const k of Object.keys(S.log).sort().reverse()) { const d = S.log[k];
       for (const m of ['snack', 'dinner', 'lunch', 'breakfast']) { const l = d[m] || []; for (let i = l.length - 1; i >= 0; i--) if (String(l[i].fid).split('@')[0] === rid) return l[i]; } }
@@ -498,9 +507,9 @@
   }
   function hl(name, q) { if (!q) return esc(name); const set = new Set([...q.toLowerCase()]); return [...name].map(ch => set.has(ch.toLowerCase()) ? '<mark>' + esc(ch) + '</mark>' : esc(ch)).join(''); }
   function foodRow(f, q) { const u = f.units[0], k = r0(f.kcal * u.g / 100); return `<button class="food" data-act="pick" data-fid="${esc(f.id)}"><span class="n"><b>${hl(f.name, q)}</b><small>1 ${esc(u.n)}${gpart(f)} · ${esc(f.cat || '自訂')}${f.st ? '・' + esc(f.st) : ''}${(bl => bl.length ? ' · ' + esc(bl.join('、')) : '')((f.brand || []).filter(x => x !== f.cat).slice(0, 3))}</small></span><span class="k">${k}<small>kcal</small></span><span class="plus">+</span></button>`; }
-  function recentRow(f) {
+  function recentRow(f, noDel) {
     const e = lastEntry(f.id), vf = e && foodById(e.fid);
-    const del = `<button class="rcx" data-act="rcdel" data-fid="${esc(f.id)}" aria-label="從最近吃過移除">×</button>`;
+    const del = noDel ? '' : `<button class="rcx" data-act="rcdel" data-fid="${esc(f.id)}" aria-label="從最近吃過移除">×</button>`;
     if (!vf) { const u = f.units[0]; return `<div class="food rc">${del}<button class="rmain" data-act="pick" data-fid="${esc(f.id)}"><span class="n"><b>${esc(f.name)}</b><small>1 ${esc(u.n)}${gpart(f)}</small></span><span class="k">${r0(f.kcal * u.g / 100)}<small>kcal</small></span></button></div>`; }
     const amt = vf.nog ? (e.unit ? e.amount + ' ' + e.unit : fmtN(r1(e.grams / vf.units[0].g)) + ' ' + vf.units[0].n) : e.unit ? e.amount + ' ' + e.unit + '（' + r0(e.grams) + ' ' + gu(vf) + '）' : r0(e.grams) + ' ' + gu(vf);
     return `<div class="food rc">${del}<button class="rmain" data-act="pick" data-fid="${esc(f.id)}" data-last="1"><span class="n"><b>${esc(vf.name)}</b><small>上次 ${esc(amt)}</small></span><span class="k">${calc(vf, e.grams).kcal}<small>kcal</small></span></button><button class="plus" data-act="quick" data-fid="${esc(f.id)}" aria-label="照上次份量再記一次${esc(vf.name)}">+</button></div>`;
@@ -509,12 +518,17 @@
     const box = $('#results'); if (!box) return; const q = S.q.trim();
     let html = '';
     if (q) {
-      const ov = new Set(S.custom.map(o => o.id)), res = NL.search(q, 50), ext = NL.searchList(q, EXT, 60).filter(f => !ov.has(f.id)), seen = new Set(res.map(f => f.name)), brR = NL.searchBrand(q, BEXT, 60), br = brR.filter(f => !seen.has(f.name) && !ov.has(f.id));
+      // 吃過的排最前面：記過越多次越前面，一樣多就最近吃的前面；下面各區就不再重複列
+      const ate = eatCounts(), ateF = [...ate.keys()].map(foodById).filter(Boolean);
+      const mineR = NL.searchList(q, ateF, 30, 55).sort((a, b) => { const x = ate.get(a.id), y = ate.get(b.id); return y.n - x.n || (y.d > x.d ? 1 : y.d < x.d ? -1 : 0); });
+      const mid = new Set(mineR.map(f => f.id)), mnm = new Set(mineR.map(f => f.name)), notMine = f => !mid.has(f.id) && !mnm.has(f.name);
+      const ov = new Set(S.custom.map(o => o.id)), res = NL.search(q, 50).filter(notMine), ext = NL.searchList(q, EXT, 60).filter(f => !ov.has(f.id) && notMine(f)), seen = new Set(res.map(f => f.name)), brR = NL.searchBrand(q, BEXT, 60), br = brR.filter(f => !seen.has(f.name) && !ov.has(f.id) && notMine(f));
       // 打的整串字只有店家品項的名稱裡有（可樂果、沙士），店家區塊排到內建前面，不被「可樂」這種只對到一半的擋住
       const ql = q.toLowerCase(), hasQ = f => f.name.toLowerCase().includes(ql), brFirst = br.length && (brR.byBrand || br.some(hasQ) && !res.some(hasQ));
       const brHtml = br.length ? `<div class="sec">超商・連鎖店 · ${br.length === 60 || br.length === 400 ? br.length + '+' : br.length} 筆<em>每筆標明官網標示或估算</em></div>` + br.map(f => foodRow(f, q)).join('') : '';
-      const resHtml = res.length ? `<div class="sec">${res.length} 筆結果 · 記到${mealName(S.meal)}</div>` + res.map(f => f.recipe ? recipeRow(S.recipes.find(x => x.id === f.id)) : foodRow(f, q)).join('') : ext.length || br.length ? '' : `<div class="nores">找不到「${esc(q)}」</div>`;
-      html = `<button class="btn ghost nfbtn" data-act="newfood">＋ 新增自訂食物${res.length || ext.length || br.length ? '' : '「' + esc(q) + '」'}</button>` + (brFirst ? brHtml + resHtml : resHtml + brHtml);
+      const resHtml = res.length ? `<div class="sec">${res.length} 筆結果 · 記到${mealName(S.meal)}</div>` + res.map(f => f.recipe ? recipeRow(S.recipes.find(x => x.id === f.id)) : foodRow(f, q)).join('') : ext.length || br.length || mineR.length ? '' : `<div class="nores">找不到「${esc(q)}」</div>`;
+      const mineHtml = mineR.length ? `<div class="sec">常吃的<em>吃過越多次越前面，按 ＋ 照上次份量直接記</em></div>` + mineR.map(f => f.recipe ? recipeRow(S.recipes.find(x => x.id === f.id)) : recentRow(f, true)).join('') : '';
+      html = `<button class="btn ghost nfbtn" data-act="newfood">＋ 新增自訂食物${res.length || ext.length || br.length || mineR.length ? '' : '「' + esc(q) + '」'}</button>` + mineHtml + (brFirst ? brHtml + resHtml : resHtml + brHtml);
       if (ext.length) html += `<div class="sec">衛福部食品營養成分資料庫 · ${ext.length >= 60 ? '60+' : ext.length} 筆<em>每 100 克／毫升</em></div>` + ext.map(f => foodRow(f, q)).join('');
     } else {
       html = `<button class="btn ghost nfbtn" data-act="newfood">＋ 新增自訂食物</button><div class="chips">${CATS.map(c => `<button class="chip ${S.cat === c ? 'on' : ''}" data-act="cat" data-cat="${c}">${c}</button>`).join('')}</div>`;
