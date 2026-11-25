@@ -73,6 +73,7 @@
   fetch('data/tfda.json').then(r => r.json()).then(a => {
     EXT = a.map(([id, name, al, k, p, c, f, cat, st, ...nx]) => ({ id: 't_' + id, name, alias: al ? al.split(',') : [], kcal: k, p, c, f, ...nxOf(nx), units: [{ n: '份', g: 100 }], cat, st, ext: 1 }));
     EXTMAP = new Map(EXT.map(x => [x.id, x]));
+    NL.setExtFoods(EXT); // 語音講了衛福部庫裡的完整名稱也認得
     for (const x of BEXT) EXTMAP.set(x.id, x);
     for (const x of SHARED) EXTMAP.set(x.id, x);
     if ($('#results')) renderResults();

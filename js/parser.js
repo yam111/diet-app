@@ -75,7 +75,52 @@
     for (const f of foods.concat(bfoods)) for (const b of f.brand || []) for (const w of BRAND_SYN[b] || [b]) bs.set(w.toLowerCase(), b);
     brands = [...bs].sort((a, b) => b[0].length - a[0].length);
   }
-  function setBrandFoods(list) { bfoods = list || []; pyIdx = null; rebuildBrands(); }
+  function setBrandFoods(list) { bfoods = list || []; pyIdx = null; xIdx = null; rebuildBrands(); }
+  // 衛福部食品營養成分資料庫（tfda.json）：語音要講完整名稱才用
+  let efoods = [];
+  function setExtFoods(list) { efoods = list || []; xIdx = null; }
+  // 店家品項：講到名字的一段（4 字以上）也認得；衛福部：名字／別名講完整（3 字以上）才認
+  // 完整名稱用對照表；名字的一段用「兩個字」的索引找候選再比對（不把每一段都存起來，手機記憶體才不會爆）
+  let xIdx = null, xMax = 0, xNames = [], xBi = null;
+  function buildXIdx() {
+    xIdx = new Map(); xMax = 0; xNames = []; xBi = new Map();
+    const add = (k, f) => { if (!xIdx.has(k)) xIdx.set(k, f); if (k.length > xMax) xMax = k.length; };
+    for (const f of bfoods) for (const n of namesOf(f)) {
+      if (n.length < 3) continue;
+      add(n, f);
+      if (n.length > 4) { const id = xNames.push({ n, f }) - 1, seen = new Set(); for (let a = 0; a + 2 <= n.length; a++) { const bg = n.substr(a, 2); if (seen.has(bg)) continue; seen.add(bg); let l = xBi.get(bg); if (!l) xBi.set(bg, l = []); l.push(id); } }
+    }
+    for (const f of efoods) for (const n of namesOf(f)) if (n.length >= 3) add(n, f);
+  }
+  // 回傳 { f, rank }：0＝完整名稱、1＝名字的後半段（「滷蛋白丁」）、2＝中間一段
+  function xLookup(w) {
+    const f0 = xIdx.get(w); if (f0) return { f: f0, rank: 0 };
+    if (w.length < 4) return null;
+    let best = null;
+    for (let a = 0; a + 2 <= w.length; a++) { const l = xBi.get(w.substr(a, 2)); if (!l) return null; if (!best || l.length < best.length) best = l; }
+    let hit = null;
+    for (const id of best) {
+      const { n, f } = xNames[id], p = n.indexOf(w); if (p < 0) continue;
+      const rank = p + w.length === n.length ? 1 : 2;
+      if (!hit || rank < hit.rank || (rank === hit.rank && n.length < hit.len)) hit = { f, rank, len: n.length };
+    }
+    return hit;
+  }
+  const XEND = /^($|[█，,、。．.；;和跟與加及還然再又大約\d零一二兩三四五六七八九十半])/;
+  function extAt(s, i, t, minL) {
+    if (!bfoods.length && !efoods.length) return null;
+    if (!xIdx) buildXIdx();
+    for (let L = Math.min(xMax, s.length - i); L > minL && L >= 3; L--) {
+      if (t.slice(i, i + L).includes(M)) continue;
+      const w = s.substr(i, L), x = xLookup(w); if (!x) continue;
+      if (x.rank === 2 && !XEND.test(t.slice(i + L).join(''))) continue; // 只對到名字中間一段：後面要是結尾、數量或連接詞才算（「雞胸肉和風沙拉」不能吃掉「雞胸肉和白飯」）
+      if (x.rank > 0 && /[和跟與加及還再又的]$/.test(w)) continue;
+      // 名字的一段不能從數字開始、也不能收在甜度冰塊（「地瓜大概150克」的 150克、「珍珠奶茶半糖」的半糖是份量／甜度，不是品名）
+      if (x.rank > 0 && (/^[\d零〇一二兩三四五六七八九十百半]/.test(w) || /\d+(克|g|ml|毫升|公克|cc)/.test(w) || [...SUGAR.map(z => z[0]), ...ICE].some(z => w.endsWith(z)))) continue;
+      return { L, f: x.f };
+    }
+    return null;
+  }
   // 品名裡的空白、連字號、括號念的時候不會講，比對前拿掉（「極饗-蒜蓉蝦拌麵」）
   const NC = new Map(); const namesOf = f => { let v = NC.get(f); if (!v) { v = [f.name, ...(f.alias || [])].map(x => x.toLowerCase().replace(/[\s\-‧・·_/()（）「」+＋]+/g, '')); NC.set(f, v); } return v; };
 
@@ -306,6 +351,11 @@
         const mm = mineAt(s, i), hl = hit ? hit.end - i : 0;
         if (mm && (mm.end - i > hl || (mm.end - i === hl && (mm.pieces >= 2 || hl >= 4))))
           hit = { type: 'food', start: i, end: mm.end, food: mm.f, said: s.slice(i, mm.end), mine: true };
+      }
+      // 沒講店名，但講的是超商・連鎖店／衛福部庫裡的品名（「滷蛋白丁」），蓋得比內建名稱長就用那一樣（跟搜尋找得到的一致）
+      {
+        const hl = hit ? hit.end - i : 0, xh = extAt(s, i, t, hl);
+        if (xh) hit = { type: 'food', start: i, end: i + xh.L, food: xh.f, said: s.substr(i, xh.L), byBrand: !!xh.f.brand && xh.f.brand.length > 0 };
       }
       if (hit) { tokens.push(hit); mask(hit.start, hit.end); i = hit.end; } else i++;
     }
@@ -550,5 +600,5 @@
     }
     return searchIn(q, list, limit);
   }
-  globalThis.NL = { fixSound, isLiquid, gu, setFoods, setBrandFoods, search, searchList, searchBrand, parse, cnNum, toGrams, mealByHour, sugarVariant };
+  globalThis.NL = { fixSound, isLiquid, gu, setFoods, setBrandFoods, setExtFoods, search, searchList, searchBrand, parse, cnNum, toGrams, mealByHour, sugarVariant };
 })();
